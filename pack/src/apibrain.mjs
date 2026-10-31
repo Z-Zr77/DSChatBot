@@ -44,10 +44,17 @@ function url(base) {
 }
 
 // 返回 { ok, text, err, usage }
-export async function chat({ baseUrl, model, key, system, user, maxTokens, temperature, timeoutMs = 60000 }) {
+export async function chat({ baseUrl, model, key, system, user, history, maxTokens, temperature, timeoutMs = 60000 }) {
   if (!baseUrl || !model || !key) return { ok: false, text: '', err: '没有配置 key/model/baseUrl' };
   const messages = [];
   if (system) messages.push({ role: 'system', content: system });
+  // 真多轮：把刚才那几轮按 user/assistant 交替塞进去，让她"顺着聊"，而不是每轮答一份文档
+  if (Array.isArray(history)) {
+    for (const m of history) {
+      if (!m || !m.content) continue;
+      messages.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content) });
+    }
+  }
   messages.push({ role: 'user', content: user });
   try {
     const r = await fetch(url(baseUrl), {

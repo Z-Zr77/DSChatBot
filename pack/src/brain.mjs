@@ -11,6 +11,13 @@ export async function ask(content, _sessionId, opts = {}) {
   const sys = String(opts.system || '').trim();
   const msgs = [];
   if (sys) msgs.push({ role: 'system', content: sys });
+  // 真多轮：history 是 [{role:'user'|'assistant', content}]，让她"顺着聊"而不是每轮答一份文档
+  if (Array.isArray(opts.history)) {
+    for (const m of opts.history) {
+      if (!m || !m.content) continue;
+      msgs.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content) });
+    }
+  }
   msgs.push({ role: 'user', content });
   const body = {
     model: s.api.model,

@@ -150,7 +150,10 @@ await ta('F05 授权在第一次 await 之前固定（源码断言）', async ()
   assert.ok(start > 0, '找不到 replyNowInner');
   const body = src.slice(start, start + 12000);
   const iPin = body.indexOf('const __taskPinned');
-  const iAwait = body.indexOf('let r = await askBrain(content, sid);');
+  // 2026-10-31：askBrain 多了第三个参数（真多轮 history），这里用正则认新签名，
+  // 但"第一次大脑调用"这个锚点不能放宽——授权必须钉在它前面。
+  const mAwait = body.match(/let r = await askBrain\(content, sid[,)]/);
+  const iAwait = mAwait ? mAwait.index : -1;
   assert.ok(iPin > 0 && iAwait > 0, '找不到关键行');
   assert.ok(iPin < iAwait, '__taskPinned 必须在第一次 askBrain 之前');
   assert.ok(!/const __pinned = \(\(\) => \{\s*try \{ const ws = grants\.active/.test(src), '旧写法应已删除');

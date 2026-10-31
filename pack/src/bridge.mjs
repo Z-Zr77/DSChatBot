@@ -1329,12 +1329,12 @@ function workPrompt(conv) {
   } catch { return ''; }
 }
 
-async function askBrain(content, sid) {
+async function askBrain(content, sid, history) {
   const api = apibrain.load();
   if (api && api.enabled !== false) {
     const r = await apibrain.chat({
       baseUrl: api.baseUrl, model: api.model, key: api.key,
-      system: personaSystem() + __genderLine(), user: content,
+      system: personaSystem() + __genderLine(), user: content, history,
       maxTokens: api.maxTokens, temperature: api.temperature,
     });
     if (r.usage) {
@@ -1351,7 +1351,7 @@ async function askBrain(content, sid) {
     if (!r.ok && /空回复/.test(r.err || '')) {
       const r2 = await apibrain.chat({
         baseUrl: api.baseUrl, model: api.model, key: api.key,
-        system: personaSystem() + __genderLine(), user: content,
+        system: personaSystem() + __genderLine(), user: content, history,
         maxTokens: Math.max(1500, (api.maxTokens || 800) * 2), temperature: api.temperature,
       });
       if (r2.ok) return { ok: true, text: r2.text, err: '', sid: null };
@@ -1359,7 +1359,7 @@ async function askBrain(content, sid) {
     return { ok: r.ok, text: r.text, err: r.err, sid: null };
   }
   // 默认分支（走 setup.json 里的大脑）：同样要带人格、同样要计费
-  const r = await askDsh(content, sid, { system: personaSystem() + __genderLine() });
+  const r = await askDsh(content, sid, { system: personaSystem() + __genderLine(), history });
   if (r && r.ok && r.usage) {
     try {
       budget.add('chat', budget.chatCost({
@@ -1991,7 +1991,10 @@ function asleepNow() {
   try { return !settings.inWindow(P.activeFrom, P.activeTo, settings.nowMinutes()); } catch { return false; }
 }
 
-// 她回得多快，一半是她的习惯（设置里的基准延迟），一半取决于他要看多少字——字越多，打得越久
+// 她回得多快，一半是她的习惯（设置里的基准延迟），一半取决于他要看多少字——字越多，打得越久。
+// 2026-10-31：以前是"2 秒 + 每字 22 毫秒"，封顶 20 秒——236 次里 96% 在 10 秒内，最长 22 秒，
+// 从没超过 30 秒。一个人不存在"最长 22 秒才回"，这就是机器味最重的地方。
+// 现在按真人的分布抽：大多数很快，偶尔几分钟，极少数十几分钟到两小时；还有一小部分她根本没回。
 function replyDelay(isGroup, text) {
   const r = settings.load().reply || {};
   const base = Math.min(60000, Math.max(0, Number((isGroup ? r.groupDelayMs : r.privateDelayMs) ?? (isGroup ? GROUP_DELAY : PRIVATE_DELAY))));
@@ -2002,7 +2005,22 @@ function replyDelay(isGroup, text) {
   let total = base + (react + chars * perChar * 0.55) * jitter;
   // 她睡着时被吵醒：先懵一会儿再摸手机
   if (asleepNow()) total += 12000 + Math.random() * 14000;
-  return Math.round(Math.min(isGroup ? 15000 : 20000, total));
+
+  const d = String(text || '');
+  // 群里不玩这套：群聊要接得上话，太慢等于没在
+  if (isGroup) return { ms: Math.round(Math.min(15000, total)), skip: false };
+
+  // 私人聊天：她有自己的生活
+  const roll = Math.random();
+  let ms;
+  if (roll < 0.68) ms = total;                                        // 顺手就回了：2–15 秒
+  else if (roll < 0.88) ms = 30000 + Math.random() * 150000;          // 在忙，半分钟到 3 分钟
+  else ms = 900000 + Math.random() * 6300000;                         // 手机不在手边：15 分钟到 2 小时
+
+  // 不回：只挑那种"可回可不回"的闲话，正事、问句、让他做的事一律要回
+  const casual = !/[?？]/.test(d) && d.length <= 30 && !/(帮|给我|看看|发我|拍|记得|明天|几点|在哪|怎么|为啥|为什么|能不能|可以|好不)/.test(d);
+  const skip = casual && Math.random() < 0.12;
+  return { ms: Math.round(Math.min(7200000, ms)), skip };
 }
 const BOT_NAME_DEFAULT = '大肥鱼';
 
@@ -2077,6 +2095,30 @@ function appendLog(uin, line) {
 
 function loadLog(uin) {
   try { return agedLog(fs.readFileSync(logFile(uin), 'utf8').trim().slice(-2600)); } catch { return ''; }
+}
+
+// 真多轮：把最近的对话按 user/assistant 交替传过去。
+// 以前每轮都是 messages:[system, user]——她看到的是"一份文档"，所以回得像答题；
+// 有了这个，她看到的是"刚聊到这儿"，才会顺着接话。
+function buildHistory(conv, turns = 10) {
+  try {
+    const rows = chatlog.recent(conv.id, 160).filter((r) => r && r.type === 'text' && String(r.text || '').trim());
+    const out = [];
+    for (const r of rows) {
+      const mine = r.dir === 'out';
+      const d = new Date(Number(r.at) || Date.now());
+      const ts = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+      const body = String(r.text).trim();
+      const content = mine ? body : `${ts} ${body}`;
+      const last = out[out.length - 1];
+      // 同一方连着发，就并进上一条，保证 user / assistant 交替
+      if (last && last.role === (mine ? 'assistant' : 'user')) last.content += '\n' + content;
+      else out.push({ role: mine ? 'assistant' : 'user', content });
+    }
+    const cut = out.slice(-(Math.max(2, turns) * 2));
+    while (cut.length && cut[0].role !== 'user') cut.shift();
+    return cut;
+  } catch { return []; }
 }
 
 // ---------- 看图：把图片转成文字再喂给她 ----------
@@ -2793,14 +2835,42 @@ async function onEvent(ev, note = '') {
       if (seg) { const st = await stageSticker(seg); if (st) buf.staged = st; }
     }
   }
+  queueReply(key, conv, line, text, { allowSkip: !isGroup, isGroup });
+
+  log(`<- ${key}`, text.slice(0, 120));
+}
+
+// 她什么时候回——QQ 和 App 窗口共用一套节奏，只是窗口里不装死。
+// allowSkip=true：这次她可以真的不回（消息留在记录里，下轮她翻到再说）。
+// capMs：窗口里最多等这么久，再久就像卡死了。
+function queueReply(key, conv, line, rawText, opts = {}) {
+  const { allowSkip = false, isGroup = false, capMs = 0 } = opts;
+  let buf = buffers.get(key);
+  if (!buf) { buf = { conv, lines: [], timer: null }; buffers.set(key, buf); }
   buf.lines.push(line);
+  if (!buf.startedAt) buf.startedAt = Date.now();
+  const plan = replyDelay(isGroup, rawText);
+
+  // 她这次真没回：不假装看到了
+  if (allowSkip && plan.skip && !buf.late) {
+    buffers.delete(key);
+    try { log('[不回]', key, String(rawText || '').slice(0, 30)); } catch {}
+    return;
+  }
+  // 已经决定"晚点再说"，他又发一条，不能把计时重置成两秒——否则他一刷屏她就永远装作在看
+  if (buf.late) {
+    try { log('[接着说]', key, '已经排着队了，攒着'); } catch {}
+    return;
+  }
+  let ms = plan.ms;
+  if (capMs && ms > capMs) ms = capMs;
+  if (ms > 60000) buf.late = true;
   if (buf.timer) clearTimeout(buf.timer);
   buf.timer = setTimeout(() => {
     buffers.delete(key);
     flush(key, buf).catch(e => log('flush error', e.message));
-  }, replyDelay(isGroup, text));
-
-  log(`<- ${key}`, text.slice(0, 120));
+  }, ms);
+  if (ms > 30000) { try { log('[晚点回]', key, Math.round(ms / 1000) + '秒后'); } catch {} }
 }
 
 // 她不一定每次都记得写 MEMO，所以再加一道后台整理：从他说的话里抽事实
@@ -2910,7 +2980,8 @@ async function flush(key, buf) {
   }
   busy.add(key);
   try {
-    await reply(conv, lines.join('\n'), { staged: buf.staged, optional: !!buf.optional });
+    const waitedMs = buf.startedAt ? Date.now() - buf.startedAt : 0;
+    await reply(conv, lines.join('\n'), { staged: buf.staged, optional: !!buf.optional, waitedMs });
     digest(conv, lines.join('\n')).catch(() => {});
   } catch (e) {
     log('flush error', e.message);
@@ -3029,7 +3100,11 @@ async function replyNowInner(conv, body, extras = {}) {
   const mem = memInfo.text;
   const goalText = (() => { try { return goals.render(520); } catch { return ''; } })();
   if (memInfo.recalled.length) log('[recall]', mk, memInfo.recalled.map(r => r.text).join(' | ').slice(0, 120));
-  const recent = loadLog(mk);
+  const history = extras.proactive ? [] : buildHistory(conv, 10);
+  // 有了真多轮，就别再把聊天记录拍平成一段文字塞进来（会让她以为在"看文档"）
+  const recent = history.length
+    ? '（上面就是我们刚才聊的，接着聊，别从头开始。）'
+    : loadLog(mk);
   const mstate = mind.load(mk);
   if (!extras.proactive) mind.bump(mstate, { type: 'user_msg' });
   budget.setChannel(conv.kind === 'group' ? 'group' : 'private');
@@ -3039,6 +3114,10 @@ async function replyNowInner(conv, body, extras = {}) {
     : `【对方 ${whoLabel(conv.id)}说】`;
   // "刚睡醒 / 被叫醒"这类一次性提示，两条通道都用得上
   const wakeLine = extras.wakeNote ? `【${extras.wake ? '你刚睡醒' : '状态'}】${extras.wakeNote}` : '';
+  // 隔了很久才回（她刚才在忙/手机不在手上）：让她自己带一句，别装成秒回
+  const busyLine = Number(extras.waitedMs) > 90000
+    ? `【你刚才在忙】他 ${Math.max(1, Math.round(Number(extras.waitedMs) / 60000))} 分钟前发的，你刚拿到手机看到。回的时候顺口带一句「刚在忙」「才看到这个」——一句就够，别解释、别道歉个没完。`
+    : '';
   // 上一轮如果有人撤回消息，这里提醒她一句（说完就清掉）
   const rh = recallHint.get(convKey(conv));
   const recallLine = rh && Date.now() - rh.at < 5 * 60 * 1000
@@ -3134,6 +3213,7 @@ async function replyNowInner(conv, body, extras = {}) {
         sleepNote(mk),
         sleepOff() ? NO_SLEEP_NOTE : '',
         wakeLine,
+        busyLine,
         '',
         who,
         body,
@@ -3152,10 +3232,11 @@ async function replyNowInner(conv, body, extras = {}) {
           ? (extras.optional
             ? '这是群里别人在聊，不是非你不可。想接就接一句，插不上、或者觉得没必要，就只输出 [[跳过]]（一个字都别发）。'
             : '直接给出要发到群里的回复正文，短一点，一句话为主。真插不上、或者觉得没必要接，就只输出 [[跳过]]。')
-          : '直接给出要发到 QQ 的回复。想说的拆成短消息，用换行分开，每条 3-15 个字。\n【分条规矩】一条是常态，两条偶发，三条以上是极少见的例外——不要凑数，不要每次都拆成三条；一句能说完就一条，想补一句就两条，只有真的是三件不相干的事才三条。\n真不想理、或者实在没什么好说的，可以只输出 [[跳过]]（那就一个字都不发）。要不要回你自己定。\n也可以一个字都不写，只发一个表情/一张图/一条语音——那种时候别写「……」占位。',
+          : '直接给出要发到 QQ 的回复。想说的拆成短消息，用换行分开。\n【分条规矩】像真人打字那样：随口一句就一条；想到第二句就再发一条，两句之间可以隔一会儿；偶尔一口气说三句也行。别为了分条而分条，也别把想说的话硬压成一句——长短由内容决定，没有字数规定。\n真不想理、或者实在没什么好说的，可以只输出 [[跳过]]（那就一个字都不发）。要不要回你自己定。\n也可以一个字都不写，只发一个表情/一张图/一条语音——那种时候别写「……」占位。',
         '情绪到位的话就配一个表情：优先 QQ 小黄脸（最后单独一行 `[[FACE:id]]`，如 `[[FACE:22]]` 白眼），偶尔用颜文字（直接写句子里，如 (￣▽￣)）。一条消息最多一个，平淡的句子别硬加。',
         '这轮他说了值得长期记住的事（名字、称呼、喜好、雷区、约定），就在最后单独一行加 `[[MEMO: …]]`；特别不能忘的用 `[[MEMO!: …]]`。没有就不加。',
         '【记错要改】如果你记的旧情况和他刚说的对不上（换城市、换工作、毕业了不再是学生、分手、改名字、戒烟了），就先删旧的：最后单独一行写 `[[FORGET: 旧记忆里的关键词]]`，再用 `[[MEMO: …]]` 记新的。要删的是核心记忆（主人/生日这类）就用 `[[FORGET!: 关键词]]`。同一件事只留最新一条，别新旧并存。',
+        '【允许记岔】人是会记错的：把日子记混、把他昨天说的记成今天，都正常——记岔了就顺着说，别当场自查，别一副"我刚才是不是说错了"的样子。被他指出来就笑一下认了（"啊对，是明天""我记混了"），一句话带过，接着聊。宁可偶尔记错，也别为了不出错回回都说"记不清"——那是机器在保守。',
         lv >= 3 ? '（预算紧了，这轮一句话就够，别展开。）' : '',
         keepPrompt(extras.staged),
         photoRule(conv),
@@ -3176,10 +3257,10 @@ async function replyNowInner(conv, body, extras = {}) {
     try { const ws = grants.active(workKey(conv)); return ws ? { id: ws.id, epoch: ws.epoch, root: ws.root } : { none: true }; } catch { return { none: true }; }
   })();
   const sid = sessions[extras.sessionKey || mk];
-  let r = await askBrain(content, sid);
+  let r = await askBrain(content, sid, history);
   if (!r.ok && /session/i.test(r.err)) {
     delete sessions[extras.sessionKey || mk]; saveSessions();
-    r = await askBrain(content, null);
+    r = await askBrain(content, null, history);
   }
   if (!r.ok) {
     log('dsh failed:', r.err);
@@ -4120,7 +4201,8 @@ function startLocalChannel() {
       __json(res, 200, { ok: true });
       {
         const __c = __localConv();
-        flush(convKey(__c), { conv: __c, lines: [body || '（我发了一张图片）'] }).catch((e) => log('[local] reply fail', e.message));
+        // 窗口里也是她本人：要按她自己的节奏回，只不过不装死（最晚 45 秒）
+        queueReply(convKey(__c), __c, body || '（我发了一张图片）', text, { allowSkip: false, capMs: 45000 });
       }
       return;
     }
