@@ -32,12 +32,12 @@ export const DEFAULTS = {
   },
   proactive: {
     enabled: true,
-    maxPerDay: 5,
-    minGapMin: 45,
+    maxPerDay: 8,
+    minGapMin: 30,
     quietMin: 15,
     chance: 0.5,
-    activeFrom: '10:00',
-    activeTo: '04:00',
+    activeFrom: '08:00',
+    activeTo: '01:00',
     tickMin: 5,
     morningBoost: true,
   },
@@ -198,13 +198,13 @@ const clamp = (n, lo, hi, dflt) => {
 // 把配置里不合法/过期的写法收拾干净（时间字段、数值范围）
 export function sanitize(cfg) {
   const p = cfg.proactive || (cfg.proactive = {});
-  p.maxPerDay = Math.round(clamp(p.maxPerDay, 0, 50, 5));
-  p.minGapMin = Math.round(clamp(p.minGapMin, 0, 1440, 45));
+  p.maxPerDay = Math.round(clamp(p.maxPerDay, 0, 50, 8));
+  p.minGapMin = Math.round(clamp(p.minGapMin, 0, 1440, 30));
   p.quietMin = Math.round(clamp(p.quietMin, 0, 1440, 15));
   p.chance = clamp(p.chance, 0, 1, 0.5);
   p.tickMin = Math.round(clamp(p.tickMin, 1, 120, 5));
-  p.activeFrom = fmtTime(p.activeFrom, '10:00');
-  p.activeTo = fmtTime(p.activeTo, '04:00');
+  p.activeFrom = fmtTime(p.activeFrom, '08:00');
+  p.activeTo = fmtTime(p.activeTo, '01:00');
 
   const b = cfg.browse || (cfg.browse = {});
   b.perDay = Math.round(clamp(b.perDay, 0, 20, 1));

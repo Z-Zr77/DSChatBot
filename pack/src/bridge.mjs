@@ -1859,6 +1859,25 @@ async function sendBubbles(conv, text) {
 
 // ---------- 主动开口：状态 ----------
 const P_FILE = path.join(RQ, 'proactive.json');
+
+// 她主动说话、但 QQ 没接时，弹一条 Windows 通知（端口由 Electron 主进程写在 notify.port）。
+function notifyOwner(text) {
+  try {
+    const pf = path.join(RQ, 'notify.port');
+    const port = parseInt(fs.readFileSync(pf, 'utf8').trim(), 10);
+    if (!port) return;
+    const name = (() => { try { return (settings.load().persona || {}).name || '她'; } catch { return '她'; } })();
+    const payload = JSON.stringify({ title: name, body: String(text || '').slice(0, 200) });
+    const req = http.request({
+      host: '127.0.0.1', port, path: '/notify', method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) },
+      timeout: 3000,
+    }, (res) => { res.resume(); });
+    req.on('error', (e) => log('[notify] 失败', e.message));
+    req.on('timeout', () => { try { req.destroy(); } catch {} });
+    req.end(payload);
+  } catch (e) { log('[notify] 不可用', e.message); }
+}
 // ???????P ? buildP() ???config.json ??????????? watchFile?
 function buildP() {
   const s = settings.load();
@@ -3635,6 +3654,7 @@ async function proactiveTick() {
       s.count = (s.count || 0) + 1;
       saveP();
       log('[proactive] sent', uin);
+      if (!QQ_ONLINE) notifyOwner(out);   // QQ 没接：用 Windows 通知把这句话递到屏幕上
     }
   } catch (e) {
     log('[proactive] error', e.message);

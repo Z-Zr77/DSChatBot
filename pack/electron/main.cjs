@@ -1,8 +1,9 @@
 // Electron 主进程：窗口 + 托盘 + 拉起 launch.mjs（用它自己的 node 运行时）。
 // 首次运行显示向导，配置完成后自动切到控制台。
-const { app, BrowserWindow, shell, Menu, Tray, nativeImage, dialog } = require('electron');
+const { app, BrowserWindow, shell, Menu, Tray, nativeImage, dialog, Notification } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const http = require('node:http');
 const { spawn } = require('node:child_process');
 
 const APP_DIR = path.resolve(__dirname, '..');
@@ -129,6 +130,44 @@ function showWindow() {
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
+}
+
+// ---------- 她主动说话时弹系统通知（桥接进程 POST 到这里） ----------
+// 桥接跑在子进程里，拿不到 Electron 的 Notification，所以本地开一个小口子：
+// 端口写进 <data>/notify.port，桥接读它后 POST /notify {title, body}。
+let notifySrv = null;
+function startNotifyServer() {
+  if (notifySrv) return;
+  const dir = dataDir();
+  try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+  const portFile = path.join(dir, 'notify.port');
+  notifySrv = http.createServer((req, res) => {
+    if (req.method !== 'POST' || !req.url || !req.url.startsWith('/notify')) { res.writeHead(404); res.end('no'); return; }
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > 8192) req.destroy(); });
+    req.on('end', () => {
+      let j = {};
+      try { j = JSON.parse(body || '{}'); } catch {}
+      const title = String(j.title || '她').slice(0, 80);
+      const text = String(j.body || '').slice(0, 300);
+      try {
+        if (Notification.isSupported() && text) {
+          const n = new Notification({ title, body: text, icon: iconPath() || undefined, silent: false });
+          n.on('click', () => { try { showWindow(); if (win && !win.isDestroyed()) win.loadURL(chatUrl()).catch(() => {}); } catch {} });
+          n.show();
+          logLine('notify shown', title, text.slice(0, 40));
+        }
+      } catch (e) { logLine('notify failed', String(e && e.message || e)); }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"ok":true}');
+    });
+  });
+  notifySrv.on('error', (e) => logLine('notify server error', String(e && e.message || e)));
+  notifySrv.listen(0, '127.0.0.1', () => {
+    const port = notifySrv.address().port;
+    try { fs.writeFileSync(portFile, String(port)); } catch {}
+    logLine('notify server on', port);
+  });
 }
 
 // ---------- 开机自启 ----------
@@ -363,6 +402,7 @@ app.whenReady().then(() => {
   if (process.platform === 'win32') app.setAppUserModelId('local.dschatbot');
   logLine('ready');
   buildTray();
+  try { startNotifyServer(); } catch (e) { logLine('notify server boot failed', String(e && e.message || e)); }
   return boot();
 }).then(() => logLine('boot done')).catch((e) => logLine('boot failed', e && e.stack || String(e)));
 
