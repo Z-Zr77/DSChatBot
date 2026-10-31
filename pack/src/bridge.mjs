@@ -725,16 +725,16 @@ function demandNote(uin) {
 
 // 睡着之后他敲了几次（只数他说的），用来判断"是不是该被叫醒"
 function recentKnocks(uin, ms = 20 * 60e3) {
+  // 敲的是"他发过来的消息"，跟入口无关：QQ 和 App 窗口都算。
+  // 以前读 .md 抄本、只认 [App]/[他] 前缀，于是 QQ 上敲多少条都不算叫醒（2026-11-01 修）。
   try {
-    const lines = fs.readFileSync(logFile(uin), 'utf8').trim().split('\n').filter(Boolean).slice(-24);
-    let n = 0;
     const from = Date.now() - ms;
-    for (const line of lines) {
-      const m = line.match(/^- (\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}) (.*)$/);
-      if (!m) continue;
-      const at = Date.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00+08:00`);
-      if (Number.isFinite(at) && at < from) continue;
-      if (/^\[App\]|^\[他\]/.test(m[6] || '')) n++;
+    const rows = chatlog.recent(uin, 300) || [];
+    let n = 0;
+    for (const r of rows) {
+      if (!r || r.dir !== 'in') continue;
+      if (!(Number(r.at) >= from)) continue;
+      n++;
     }
     return n;
   } catch { return 0; }
@@ -3775,9 +3775,11 @@ async function proactiveTick() {
 
     cands.sort((a, b) => b[1].lastUserAt - a[1].lastUserAt);
     const [uin] = cands[0];
-    // 状态不好就不硬撑着找人：困、烦、或者已经连着被冷落两次
+    // 状态不好就不硬撑着找人：困、烦、已经连着被冷落两次、或者已经睡着了。
+    // 睡着还能主动发消息，就会出现"她刚说面煮好了、你回她她不理你"（2026-11-01 真实事故）。
     const mst = mind.load(uin);
-    if (!force && (mst.energy < 20 || mst.mood < 28 || (mst.unansweredProactive || 0) >= 2)) {
+    if (!force && (mst.energy < 20 || mst.mood < 28 || (mst.unansweredProactive || 0) >= 2
+      || Number(mst.asleepUntil) > now)) {
       log('[proactive] 状态不好，算了', uin, Math.round(mst.mood), Math.round(mst.energy));
       return;
     }

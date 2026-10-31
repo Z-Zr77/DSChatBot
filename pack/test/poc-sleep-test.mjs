@@ -115,6 +115,19 @@ t('不再按钟点写死：提示词里没有"凌晨 2 点必须睡"', () => {
   assert.ok(!/凌晨 2 点.{0,8}必须睡|2 点后.{0,6}不许回/.test(bridgeSrc));
 });
 
+// 2026-11-01 真实事故：她刚主动说"面煮好了"，他回两句，她一条都没理。
+// 两个原因都要钉住：睡着了还在主动发消息；叫醒计数只认 [App]/[他]，QQ 上敲死也不醒。
+t('睡眠期间不主动找人', () => {
+  assert.ok(/mst\.asleepUntil\)\s*>\s*now/.test(bridgeSrc), 'proactiveTick 没看 asleepUntil');
+});
+
+t('叫醒计数按"他发来的消息"算，不分 QQ / App', () => {
+  const fn = bridgeSrc.slice(bridgeSrc.indexOf('function recentKnocks'), bridgeSrc.indexOf('function recentKnocks') + 700);
+  assert.ok(/chatlog\.recent/.test(fn), '还在读 .md 抄本');
+  assert.ok(/r\.dir\s*!==\s*'in'/.test(fn), '没按方向筛');
+  assert.ok(!/\[App\]\|\\\[他\\\]/.test(fn), '还在只看 App 前缀');
+});
+
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${fail ? 'FAIL' : 'OK'} — PASS ${pass} / FAIL ${fail}`);
 process.exit(fail ? 1 : 0);
