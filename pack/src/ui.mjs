@@ -2057,6 +2057,9 @@ main{flex:1;min-width:0;height:100vh;overflow-y:auto;overflow-x:hidden;padding:0
 .topbar .sub{margin:3px 0 0;color:var(--dim);font-size:12.5px}
 .wrap{max-width:1120px;margin:0 auto;padding:10px 30px 0}
 section{display:none;scroll-margin-top:86px}
+.paneh{font-size:12px;letter-spacing:1px;color:#7b8496;font-weight:600;margin:22px 0 8px;padding:0 2px;text-transform:uppercase}
+section>.paneh:first-child{margin-top:2px}
+.recent{max-height:300px;overflow:auto;margin:8px 0 0;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.6;color:#9aa4b8}
 section.on{display:block}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;margin-bottom:14px;box-shadow:inset 0 1px 0 rgba(255,255,255,.02),0 10px 30px -26px #000}
 .card > b:first-child{font-size:13.5px;letter-spacing:.2px}
@@ -2210,22 +2213,29 @@ pre{background:#0b0e13;border:1px solid var(--line);border-radius:12px;padding:1
 </style></head><body>
 <nav>
   <div class="brand"><span class="logo">🐟</span><div><b>大肥鱼</b><i>DSCHAT CONSOLE</i></div></div>
-  <button data-t="status" class="on"><span class="i">◎</span>状态</button>
-  <button data-t="persona"><span class="i">✎</span>人格</button>
+  <button data-t="overview" class="on"><span class="i">◎</span>概览</button>
+  <button data-t="her"><span class="i">✎</span>她</button>
   <button data-t="memory"><span class="i">✦</span>记忆</button>
-  <button data-t="stickers"><span class="i">☺</span>表情包</button>
-  <button data-t="interests"><span class="i">✧</span>兴趣</button>
-  <button data-t="budget"><span class="i">￥</span>预算</button>
-  <button data-t="groups"><span class="i">☰</span>群聊</button>
+  <button data-t="money"><span class="i">￥</span>花费</button>
   <button data-t="config"><span class="i">⚙</span>设置</button>
-  <button data-t="log"><span class="i">≡</span>日志</button>
 </nav>
 <main>
 <div id="apBox" style="display:none;position:fixed;top:14px;right:16px;width:390px;max-height:72vh;overflow:auto;background:#101a2b;border:1px solid #3d5a86;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.55);z-index:60;color:#dbe6fa"></div>
-<div class="topbar"><div><h1 id="pgTitle">状态</h1><p class="sub" id="pgSub">连接、二维码与今天的用量</p></div></div>
+<div class="topbar"><div><h1 id="pgTitle">概览</h1><p class="sub" id="pgSub">她连上没有、今天花了多少、要不要重启</p></div></div>
 <div class="wrap">
-<section id="status" class="on"><div id="qrSlot"></div><div id="statusBox"></div></section>
-<section id="persona">
+<section id="overview" class="on">
+  <div id="qrSlot"></div>
+  <div id="statusBox"></div>
+  <div class="card" style="margin-top:14px">
+    <div class="row" style="justify-content:space-between"><b>最近发生的事</b>
+      <button class="ghost btn" onclick="loadRecent()">刷新</button></div>
+    <pre id="recentPre" class="recent">读取中…</pre>
+  </div>
+</section>
+
+<section id="her">
+  <h3 class="paneh">她是谁</h3>
+<div class="pane" id="persona">
   <div class="card"><div class="row" style="justify-content:space-between"><b>她的样子</b>
     <span class="dim" id="sfState"></span></div>
     <p class="dim">放一张她的图（三视图最好），再写一段长相描述。她会知道自己长什么样；自己画图、发“自拍”时都按这段描述出图。</p>
@@ -2250,8 +2260,26 @@ pre{background:#0b0e13;border:1px solid var(--line);border-radius:12px;padding:1
     <div class="row"><span class="dim" id="pState"></span><button class="btn" onclick="savePersona()">保存</button></div></div>
     <p class="dim">改完保存，下一条消息就生效（不用重启）。</p>
     <textarea id="personaText" style="height:320px"></textarea></div>
+</div>
+  <h3 class="paneh">表情包</h3>
+<div class="pane" id="stickers">
+  <div class="card"><div class="row" style="justify-content:space-between"><b>表情包库</b><span class="dim" id="skCount"></span></div>
+    <p class="dim">标签是给她看的关键词：她会按情绪挑。改完自动保存。</p>
+    <div class="grid" id="skGrid"></div></div>
+</div>
+  <h3 class="paneh">她自己想聊什么</h3>
+<div class="pane" id="interests">
+  <div class="card"><div class="row" style="justify-content:space-between"><b>她感兴趣的事</b><button class="btn" onclick="saveInterests()">保存</button></div>
+    <p class="dim">每行一条；她上网时按这些找东西看。</p>
+    <textarea id="intTopics" style="min-height:160px"></textarea>
+    <div class="row" style="margin-top:10px"><span class="dim">每天最多看</span><input id="intMax" type="number" style="width:90px"><span class="dim">次</span></div>
+    <div class="row" style="margin-top:10px"><span class="dim">最近看到</span></div>
+    <div id="seenBox" class="dim" style="font-size:12px;line-height:1.7"></div></div>
+</div>
 </section>
+
 <section id="memory">
+<div class="pane" id="memPane">
   <div class="card"><div class="toolbar">
     <b>记忆</b><select id="memWho" class="w200" onchange="loadMem();paintOwnerTag(S)"></select>
     <span class="warnchip" id="memOwnerTag" style="display:none">主人号 · 删除要授权码</span>
@@ -2279,110 +2307,11 @@ pre{background:#0b0e13;border:1px solid var(--line);border-radius:12px;padding:1
     <button class="btn" onclick="loadSkills()">刷新</button></div>
     <p class="dim">她调过的工具、成没成、错在哪。失败过的，下次会换个法子。</p>
     <div id="skList" class="dim">还没有调用记录</div></div>
-</section>
-<section id="stickers">
-  <div class="card"><div class="row" style="justify-content:space-between"><b>表情包库</b><span class="dim" id="skCount"></span></div>
-    <p class="dim">标签是给她看的关键词：她会按情绪挑。改完自动保存。</p>
-    <div class="grid" id="skGrid"></div></div>
-</section>
-<section id="groups">
-  <div class="card">
-    <div class="cardhead">
-      <h2>群聊</h2>
-      <span id="gMsg" class="hint"></span>
-      <span class="spacer"></span>
-      <button class="primary" onclick="saveCfg()">保存</button>
-    </div>
-    <p class="dim" style="margin:0 0 8px">她在群里怎么说话。改完点保存，下一条群消息就生效。</p>
-
-    <div class="gr"><span class="lbl">启用群聊</span>
-      <label class="sw"><input type="checkbox" data-cb="groups.enabled" checked><span>在群里说话</span></label>
-      <span class="hint"></span></div>
-
-    <div class="gr"><span class="lbl">只认叫名字</span>
-      <label class="sw"><input type="checkbox" data-cb="groups.needCall" checked><span>要叫她或 @ 她才理</span></label>
-      <span class="hint">关掉 = 群里说什么都可能接</span></div>
-
-    <div class="gr"><span class="lbl">她叫什么</span>
-      <input data-p="names" placeholder="大肥鱼,肥鱼,小鱼,鱼宝">
-      <span class="hint">群里叫这些名字都算叫她（人格里写的名字会自动认）</span></div>
-
-    <div class="gr"><span class="lbl">对群友</span>
-      <select data-p="groups.spicy"><option value="0">温和</option><option value="1">正常</option><option value="2">毒舌</option></select>
-      <span class="hint">对主人永远温柔，这里只对群里其他人</span></div>
-
-    <div class="gr"><span class="lbl">续聊窗口</span>
-      <input type="number" data-p="groups.followMin">
-      <span class="hint">分钟。叫过她之后，这个群还能接着聊多久；0 = 每条都要叫</span></div>
-
-    <div class="gr"><span class="lbl">续聊她自己定</span>
-      <label class="sw"><input type="checkbox" data-cb="groups.followAuto"><span>接不接由她判断</span></label>
-      <span class="hint">关掉 = 窗口内每句都回</span></div>
-
-    <div class="gr"><span class="lbl">连着发时等几秒</span>
-      <input type="number" step="1" min="0" max="60" data-p="groups.joinSec">
-      <span class="hint">对方连发几条时先攒一下，让她当一段话回（0 = 一条一句）</span></div>
-
-    <div class="gr"><span class="lbl">一轮最多合并</span>
-      <input type="number" step="1" min="1" max="20" data-p="groups.maxJoin">
-      <span class="hint">条，攒满就不等了，马上处理</span></div>
-
-    <div class="gr"><span class="lbl">被叫时补上文</span>
-      <input type="number" step="1" min="0" max="30" data-p="groups.recallCount">
-      <span class="hint">条。隔太久没聊时，把前面这些条群消息也给她看，别让她接不上话（0 = 不补）</span></div>
-    <div class="gr"><span class="lbl">发言间隔</span>
-      <input type="number" data-p="groups.gapSec">
-      <span class="hint">秒。她说完一句后，至少隔这么久才接下一句</span></div>
-
-    <div class="gr"><span class="lbl">一轮最多说</span>
-      <input type="number" data-p="groups.maxChain">
-      <span class="hint">句，说满自动重新开一轮（防刷屏）</span></div>
-
-    <div class="gr"><span class="lbl">群聊每天最多花</span>
-      <input type="number" data-p="groups.dayCap">
-      <span class="hint">元（0 = 不限）</span></div>
-
-    <div class="gr"><span class="lbl">群聊每月最多花</span>
-      <input type="number" data-p="groups.monthCap">
-      <span class="hint">元（0 = 不限）</span></div>
-
-    <div class="gr note"><span class="lbl">额度用完了</span>
-      <span class="hint">只在群里回 @ 和点名的，其他一律不吭声；私聊不受影响。两个额度和「预算」页共用一个池子，这里只是给群聊单独设上限。</span></div>
-
-    <div class="gr"><span class="lbl">群聊已花</span>
-      <span id="gSpent" class="hint">—</span><span class="hint"></span></div>
-
-    <div class="gr wide"><span class="lbl">白名单</span>
-      <textarea data-p="groups.allow" rows="3" placeholder="一行一个，也可以用逗号 / 空格隔开；留空 = 所有群都行"></textarea>
-      <span class="hint">只在这些群说话</span></div>
-
-    <div class="gr wide"><span class="lbl">群黑名单</span>
-      <textarea data-p="groups.block" rows="3" placeholder="一行一个群号，也可以用逗号 / 空格隔开"></textarea>
-      <span class="hint">这些群一律不理</span></div>
-
-    <div class="gr wide"><span class="lbl">用户黑名单</span>
-      <textarea data-p="blacklist.uins" rows="3" placeholder="一行一个 QQ 号，也可以用逗号 / 空格隔开"></textarea>
-      <span class="hint">针对个人，不是群</span></div>
-
-    <div class="gr"><span class="lbl">黑名单怎么处理</span>
-      <select data-p="blacklist.mode"><option value="curse">骂回去</option><option value="ignore">完全不理会</option></select>
-      <span class="hint">对上面这些人</span></div>
-
-    <div class="gr"><span class="lbl">群里收表情包</span>
-      <label class="sw"><input type="checkbox" data-cb="stickers.collectFromGroup"><span>别人发的也能收进她的库</span></label>
-      <span class="hint"></span></div>
-  </div>
+</div>
 </section>
 
-<section id="interests">
-  <div class="card"><div class="row" style="justify-content:space-between"><b>她感兴趣的事</b><button class="btn" onclick="saveInterests()">保存</button></div>
-    <p class="dim">每行一条；她上网时按这些找东西看。</p>
-    <textarea id="intTopics" style="min-height:160px"></textarea>
-    <div class="row" style="margin-top:10px"><span class="dim">每天最多看</span><input id="intMax" type="number" style="width:90px"><span class="dim">次</span></div>
-    <div class="row" style="margin-top:10px"><span class="dim">最近看到</span></div>
-    <div id="seenBox" class="dim" style="font-size:12px;line-height:1.7"></div></div>
-</section>
-<section id="budget">
+<section id="money">
+<div class="pane" id="budget">
   <div class="card"><div class="row" style="justify-content:space-between"><b>本月花费</b>
     <button class="ghost btn" onclick="loadBudget()">刷新</button></div>
     <div id="budBox"></div></div>
@@ -2400,8 +2329,12 @@ pre{background:#0b0e13;border:1px solid var(--line);border-radius:12px;padding:1
       <button class="btn" onclick="saveBudgetCfg()">保存</button></div>
     <div class="row" style="margin-top:10px"><button class="danger btn" onclick="resetBudget()">本月清零重算</button></div>
   </div>
+</div>
 </section>
+
 <section id="config">
+  <h3 class="paneh">账号与通道</h3>
+<div class="pane" id="config">
     
 
   <div class="card" id="cfgBox"></div>
@@ -2526,27 +2459,122 @@ pre{background:#0b0e13;border:1px solid var(--line);border-radius:12px;padding:1
       <div class="gr wide"><span class="lbl">场景禁止项</span><textarea data-p="prompts.sceneBan" rows="2"></textarea><span class="hint">场景图里不许出现的东西（人、文字、水印…）</span></div>
       <div class="row" style="margin-top:8px"><button class="ghost btn" onclick="resetPrompts()">恢复默认文案</button></div>
     </div>
-  </section>
-<section id="log">
+  
+</div>
+  <h3 class="paneh">群聊</h3>
+<div class="pane" id="groups">
+  <div class="card">
+    <div class="cardhead">
+      <h2>群聊</h2>
+      <span id="gMsg" class="hint"></span>
+      <span class="spacer"></span>
+      <button class="primary" onclick="saveCfg()">保存</button>
+    </div>
+    <p class="dim" style="margin:0 0 8px">她在群里怎么说话。改完点保存，下一条群消息就生效。</p>
+
+    <div class="gr"><span class="lbl">启用群聊</span>
+      <label class="sw"><input type="checkbox" data-cb="groups.enabled" checked><span>在群里说话</span></label>
+      <span class="hint"></span></div>
+
+    <div class="gr"><span class="lbl">只认叫名字</span>
+      <label class="sw"><input type="checkbox" data-cb="groups.needCall" checked><span>要叫她或 @ 她才理</span></label>
+      <span class="hint">关掉 = 群里说什么都可能接</span></div>
+
+    <div class="gr"><span class="lbl">她叫什么</span>
+      <input data-p="names" placeholder="大肥鱼,肥鱼,小鱼,鱼宝">
+      <span class="hint">群里叫这些名字都算叫她（人格里写的名字会自动认）</span></div>
+
+    <div class="gr"><span class="lbl">对群友</span>
+      <select data-p="groups.spicy"><option value="0">温和</option><option value="1">正常</option><option value="2">毒舌</option></select>
+      <span class="hint">对主人永远温柔，这里只对群里其他人</span></div>
+
+    <div class="gr"><span class="lbl">续聊窗口</span>
+      <input type="number" data-p="groups.followMin">
+      <span class="hint">分钟。叫过她之后，这个群还能接着聊多久；0 = 每条都要叫</span></div>
+
+    <div class="gr"><span class="lbl">续聊她自己定</span>
+      <label class="sw"><input type="checkbox" data-cb="groups.followAuto"><span>接不接由她判断</span></label>
+      <span class="hint">关掉 = 窗口内每句都回</span></div>
+
+    <div class="gr"><span class="lbl">连着发时等几秒</span>
+      <input type="number" step="1" min="0" max="60" data-p="groups.joinSec">
+      <span class="hint">对方连发几条时先攒一下，让她当一段话回（0 = 一条一句）</span></div>
+
+    <div class="gr"><span class="lbl">一轮最多合并</span>
+      <input type="number" step="1" min="1" max="20" data-p="groups.maxJoin">
+      <span class="hint">条，攒满就不等了，马上处理</span></div>
+
+    <div class="gr"><span class="lbl">被叫时补上文</span>
+      <input type="number" step="1" min="0" max="30" data-p="groups.recallCount">
+      <span class="hint">条。隔太久没聊时，把前面这些条群消息也给她看，别让她接不上话（0 = 不补）</span></div>
+    <div class="gr"><span class="lbl">发言间隔</span>
+      <input type="number" data-p="groups.gapSec">
+      <span class="hint">秒。她说完一句后，至少隔这么久才接下一句</span></div>
+
+    <div class="gr"><span class="lbl">一轮最多说</span>
+      <input type="number" data-p="groups.maxChain">
+      <span class="hint">句，说满自动重新开一轮（防刷屏）</span></div>
+
+    <div class="gr"><span class="lbl">群聊每天最多花</span>
+      <input type="number" data-p="groups.dayCap">
+      <span class="hint">元（0 = 不限）</span></div>
+
+    <div class="gr"><span class="lbl">群聊每月最多花</span>
+      <input type="number" data-p="groups.monthCap">
+      <span class="hint">元（0 = 不限）</span></div>
+
+    <div class="gr note"><span class="lbl">额度用完了</span>
+      <span class="hint">只在群里回 @ 和点名的，其他一律不吭声；私聊不受影响。两个额度和「预算」页共用一个池子，这里只是给群聊单独设上限。</span></div>
+
+    <div class="gr"><span class="lbl">群聊已花</span>
+      <span id="gSpent" class="hint">—</span><span class="hint"></span></div>
+
+    <div class="gr wide"><span class="lbl">白名单</span>
+      <textarea data-p="groups.allow" rows="3" placeholder="一行一个，也可以用逗号 / 空格隔开；留空 = 所有群都行"></textarea>
+      <span class="hint">只在这些群说话</span></div>
+
+    <div class="gr wide"><span class="lbl">群黑名单</span>
+      <textarea data-p="groups.block" rows="3" placeholder="一行一个群号，也可以用逗号 / 空格隔开"></textarea>
+      <span class="hint">这些群一律不理</span></div>
+
+    <div class="gr wide"><span class="lbl">用户黑名单</span>
+      <textarea data-p="blacklist.uins" rows="3" placeholder="一行一个 QQ 号，也可以用逗号 / 空格隔开"></textarea>
+      <span class="hint">针对个人，不是群</span></div>
+
+    <div class="gr"><span class="lbl">黑名单怎么处理</span>
+      <select data-p="blacklist.mode"><option value="curse">骂回去</option><option value="ignore">完全不理会</option></select>
+      <span class="hint">对上面这些人</span></div>
+
+    <div class="gr"><span class="lbl">群里收表情包</span>
+      <label class="sw"><input type="checkbox" data-cb="stickers.collectFromGroup"><span>别人发的也能收进她的库</span></label>
+      <span class="hint"></span></div>
+  </div>
+</div>
+  <h3 class="paneh">日志</h3>
+<div class="pane" id="log">
   <div class="card"><div class="row" style="justify-content:space-between"><b>日志</b><button class="ghost btn" onclick="loadLog()">刷新</button></div>
     <pre id="logPre" style="max-height:none;height:calc(100vh - 230px)"></pre></div>
-</section>
 </div>
+</section>
 </main>
 <script>__WK_SCRIPT__</script>
 <script>
 const $ = (s) => document.querySelector(s);
 const PG = {
-  status: ['状态', '连接、二维码与今天的用量'],
-  persona: ['人格', '她是谁、怎么说话'],
+  overview: ['概览', '她连上没有、今天花了多少、要不要重启'],
+  her: ['她', '她是谁、怎么说话、随手发什么图'],
   memory: ['记忆', '她记住的事，和遗忘曲线'],
-  stickers: ['表情包', '她能随手发的图'],
-  interests: ['兴趣', '她自己想聊什么'],
-  budget: ['预算', '花钱上限与本月用量'],
-  groups: ['群聊', '在群里怎么说话'],
-  config: ['设置', '账号、通道与安全'],
-  log: ['日志', '最近发生过什么']
+  money: ['花费', '上限、本月用量、钱花在哪种消息上'],
+  config: ['设置', '账号、通道、群聊与日志']
 };
+const PAGE_LOAD = {
+  overview: () => { loadState(); loadRecent(); },
+  her: () => { loadPersona(); loadSelf(); loadStickers(); loadInterests(); },
+  memory: () => loadMem(),
+  money: () => loadBudget(),
+  config: () => { loadCfg(); loadLog(); }
+};
+const ALIAS = { status: 'overview', persona: 'her', stickers: 'her', interests: 'her', budget: 'money', groups: 'config', log: 'config' };
 function setPageTitle(t) {
   const p = PG[t] || [t, ''];
   const h = document.getElementById('pgTitle'), s = document.getElementById('pgSub');
@@ -2557,7 +2585,7 @@ let S = {};
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   const target = b.dataset.t;
   // 没保存就切走：把输入框还原成上次保存的值
-  if (__dirty && ['config', 'groups'].includes(document.querySelector('nav button.on')?.dataset.t)) {
+  if (__dirty && document.querySelector('nav button.on')?.dataset.t === 'config') {
     clearDirty();
     loadCfg().then(() => toast('没保存，已还原成上次的设置', true)).catch(() => {});
   }
@@ -2566,12 +2594,8 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   b.classList.add('on'); $('#' + b.dataset.t).classList.add('on');
   setPageTitle(b.dataset.t);
   const mainEl = document.querySelector('main');
-  if (mainEl) mainEl.scrollTop = 0;  if (b.dataset.t === 'memory') loadMem();
-  if (b.dataset.t === 'stickers') loadStickers();
-  if (b.dataset.t === 'interests') loadInterests();
-  if (b.dataset.t === 'budget') loadBudget();
-  if (b.dataset.t === 'log') loadLog();
-  if (b.dataset.t === 'status') loadState();
+  if (mainEl) mainEl.scrollTop = 0;
+  try { (PAGE_LOAD[b.dataset.t] || function(){})(); } catch (e) {}
   if (b.dataset.t === 'chat') chatBoot();
     if (document.getElementById('avBtn') && !document.getElementById('avBtn').onclick) document.getElementById('avBtn').onclick = () => openAvatars();
 });
@@ -2579,7 +2603,9 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
 // 注意要等整段脚本执行完（__dirty 在下面才初始化），所以放到下一个 tick
 setTimeout(() => {
   try {
-    const h = (location.hash || '').replace('#', '');
+    setPageTitle('overview');
+    let h = (location.hash || '').replace('#', '');
+    if (h && ALIAS[h]) h = ALIAS[h];
     if (!h || !PG[h]) return;
     const btn = document.querySelector('nav button[data-t="' + h + '"]');
     if (btn && !btn.classList.contains('on')) btn.click();
@@ -3770,6 +3796,15 @@ async function restartBridgeClick(){
   say('桥接没起来，去「日志」页看看', '#e2777a');
 }
 async function loadLog(){ const r = await api('/api/log'); $('#logPre').textContent = r.lines.slice().reverse().join('\n'); }
+async function loadRecent(){
+  const el = document.getElementById('recentPre');
+  if (!el) return;
+  try {
+    const r = await api('/api/log');
+    const lines = (r && r.lines) || [];
+    el.textContent = lines.slice(-20).reverse().join('\n') || '（还没有日志）';
+  } catch (e) { el.textContent = '读不到日志：' + e.message; }
+}
 
 const LV = ['正常', '降耗（停自主浏览，主动 1 条/天）', '停语音条', '只被动回复、话更短', '已通知并停止'];
 const PRICE_LBL = { inputPerM: ['输入', '/百万 token'], cacheHitPerM: ['缓存命中', '/百万 token'], outputPerM: ['输出', '/百万 token'], ttsPerKChar: ['语音合成', '/千字符'], asrPerSec: ['语音识别', '/秒'], visionPerCall: ['看图', '/次'] };
@@ -3822,7 +3857,7 @@ async function resetBudget(){
 }
 
 loadState(); loadPersona(); loadSelf(); loadCfg(); api('/api/delcode').then(renderDelCode).catch(() => {});
-setInterval(() => { if ($('#status').classList.contains('on')) loadState(); }, 8000);
+setInterval(() => { if ($('#overview') && $('#overview').classList.contains('on')) { loadState(); loadRecent(); } }, 15000);
 
 </script>  <div id="toast"></div>
 </body></html>`;

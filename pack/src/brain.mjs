@@ -26,20 +26,34 @@ export async function ask(content, _sessionId, opts = {}) {
     max_tokens: Number(s.api.maxTokens ?? 900),
     stream: false,
   };
-  try {
+  async function once(bd) {
     const r = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.api.key}` },
-      body: JSON.stringify(body),
+      body: JSON.stringify(bd),
       signal: AbortSignal.timeout(180000),
     });
     const txt = await r.text();
     let j = null;
     try { j = JSON.parse(txt); } catch {}
-    if (!r.ok) return { ok: false, text: '', err: `HTTP ${r.status}: ${txt.slice(0, 300)}` };
-    const text = j?.choices?.[0]?.message?.content ?? '';
-    if (!text) return { ok: false, text: '', err: 'empty completion: ' + txt.slice(0, 200) };
-    return { ok: true, text, sid: null, usage: j?.usage || null };
+    return { status: r.status, ok: r.ok, txt, j, text: j?.choices?.[0]?.message?.content ?? '', fin: j?.choices?.[0]?.finish_reason || '' };
+  }
+
+  try {
+    const a = await once(body);
+    if (!a.ok) return { ok: false, text: '', err: `HTTP ${a.status}: ${a.txt.slice(0, 300)}` };
+    if (a.text) return { ok: true, text: a.text, sid: null, usage: a.j?.usage || null };
+
+    // 空回复：最常见是 max_tokens 被"思考"吃光（finish_reason=length）。
+    // 以前这里直接判失败，她的回复就凭空消失了——用户只看到"她不理我"。
+    // 现在加一次更大的预算重试；还是空，才如实报错。
+    const bigger = Math.max(1600, Number(body.max_tokens || 900) * 2);
+    const b = await once({ ...body, max_tokens: bigger });
+    if (b.ok && b.text) return { ok: true, text: b.text, sid: null, usage: b.j?.usage || null, retried: true };
+    return {
+      ok: false, text: '',
+      err: `empty completion (finish=${a.fin || '?'}, 重试后仍空): ` + a.txt.slice(0, 200),
+    };
   } catch (e) {
     return { ok: false, text: '', err: String(e?.message || e) };
   }

@@ -2032,16 +2032,18 @@ function replyDelay(isGroup, text) {
   if (isGroup) return { ms: Math.round(Math.min(15000, total) * delayScale()), skip: false };
 
   // 私人聊天：她有自己的生活
+  // 2026-11-01 收窄：原来 12% 会压 15–120 分钟，用户当晚被"70 分钟不回"困惑了一次。
+  // 现在的取舍——"慢"要能解释成"在忙"，不能变成"她死了"：最长 8 分钟。
   const roll = Math.random();
   let ms;
-  if (roll < 0.68) ms = total;                                        // 顺手就回了：2–15 秒
-  else if (roll < 0.88) ms = 30000 + Math.random() * 150000;          // 在忙，半分钟到 3 分钟
-  else ms = 900000 + Math.random() * 6300000;                         // 手机不在手边：15 分钟到 2 小时
+  if (roll < 0.75) ms = total;                                        // 顺手就回了：2–15 秒
+  else if (roll < 0.93) ms = 20000 + Math.random() * 70000;           // 在忙：20 秒到 1 分半
+  else ms = 120000 + Math.random() * 360000;                          // 手机不在手边：2–8 分钟
 
   // 不回：只挑那种"可回可不回"的闲话，正事、问句、让他做的事一律要回
   const casual = !/[?？]/.test(d) && d.length <= 30 && !/(帮|给我|看看|发我|拍|记得|明天|几点|在哪|怎么|为啥|为什么|能不能|可以|好不)/.test(d);
   const skip = casual && Math.random() < 0.12 && delayScale() > 0;
-  return { ms: Math.round(Math.min(7200000, ms) * delayScale()), skip };
+  return { ms: Math.round(Math.min(480000, ms) * delayScale()), skip };
 }
 // 测试里不能真等两小时：run-tests 会把 QQBOT_DELAY_SCALE 设成 0
 function delayScale() {
