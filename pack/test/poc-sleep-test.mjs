@@ -76,7 +76,22 @@ t('桥接：睡着时不回话，连敲 3 次才叫醒', () => {
 
 t('桥接：说完这句就真的睡（goSleep 在发送之后调用）', () => {
   assert.ok(/if \(ex\.sleepHours\) \{/.test(bridgeSrc), '没有处理 sleepHours');
-  assert.ok(/mind\.goSleep\(mk, ex\.sleepHours\)/.test(bridgeSrc), '没有写睡眠状态');
+  assert.ok(/let hrs = ex\.sleepHours;/.test(bridgeSrc), '没从 sleepHours 取小时数');
+  assert.ok(/mind\.goSleep\(mk, hrs\)/.test(bridgeSrc), '没有写睡眠状态');
+});
+
+t('刚被叫醒又说"我去睡了"，算同一觉，不再排满 7 小时', () => {
+  const now = 1_800_000_000_000;
+  const woke = mind.clampSleepAfterWake({ wokeAt: now - 5 * 60e3 }, 7, now);
+  assert.equal(woke.again, true, '5 分钟前刚被叫醒，应该算同一觉');
+  assert.equal(woke.hrs, 1.5, '同一觉最多再睡 1.5 小时，实际 ' + woke.hrs);
+
+  const fresh = mind.clampSleepAfterWake({ wokeAt: now - 40 * 60e3 }, 7, now);
+  assert.equal(fresh.again, false, '40 分钟前被叫醒，这是新的一觉');
+  assert.equal(fresh.hrs, 7, '新的一觉按她说的 7 小时');
+
+  const none = mind.clampSleepAfterWake({}, 6, now);
+  assert.equal(none.hrs, 6, '从来没被叫醒过，按原样');
 });
 
 t('桥接：睡醒会自己冒一句（wakeTick 注册了定时器）', () => {

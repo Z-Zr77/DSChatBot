@@ -3075,7 +3075,7 @@ async function replyNowInner(conv, body, extras = {}) {
   if (!extras.proactive && !extras.wake && mind.isAsleep(mkSleep)) {
     const knocks = recentKnocks(mkSleep, 20 * 60e3);
     if (knocks >= 3) {
-      try { const st = mind.load(mkSleep); st.asleepUntil = 0; mind.save(mkSleep, st); } catch {}
+      try { const st = mind.load(mkSleep); st.asleepUntil = 0; st.wokeAt = Date.now(); mind.save(mkSleep, st); } catch {}
       extras.wakeNote = '他是连着敲了几次把你叫醒的，你还没睡够，说话有点懵——先应一声。';
       log('[sleep] 被叫醒', mkSleep, 'knocks', knocks);
     } else {
@@ -3575,8 +3575,15 @@ async function replyNowInner(conv, body, extras = {}) {
   for (const sc of (ex.scenes || [])) await sendScene(conv, sc);
   if (conv.kind === 'group') gfAfterSpeak(conv.id);   // 说过话就把续聊窗口续上
   if (ex.sleepHours) {
-    const r = mind.goSleep(mk, ex.sleepHours);
-    log('[sleep] 她说去睡了', mk, r.hrs + ' 小时，约 ' + new Date(r.until).toTimeString().slice(0, 5) + ' 醒');
+    // 刚被叫醒又说"我去睡了"——那是同一觉没睡完，不是新的一觉：别再给她排 7 小时。
+    let hrs = ex.sleepHours;
+    let again = false;
+    try {
+      const c = mind.clampSleepAfterWake(mind.load(mk), ex.sleepHours);
+      hrs = c.hrs; again = c.again;
+    } catch {}
+    const r = mind.goSleep(mk, hrs);
+    log('[sleep] 她说去睡了' + (again ? '（刚被叫醒，算同一觉，只睡 ' + r.hrs + ' 小时）' : ''), mk, r.hrs + ' 小时，约 ' + new Date(r.until).toTimeString().slice(0, 5) + ' 醒');
   }
   mind.bump(mstate, { type: extras.proactive ? 'proactive' : 'my_reply' });
   mind.save(mk, mstate);

@@ -86,6 +86,15 @@ function noSleep() {
 
 export { noSleep };
 
+// 刚被叫醒的人不会再"睡一觉"：这时候她说要去睡，只是把刚才那觉睡完。
+// 20 分钟内被吵醒过 → 这次最多睡 1.5 小时（否则就是每被吵一次就重排一整夜，永远睡不完）。
+export function clampSleepAfterWake(st, hrs, now = Date.now()) {
+  const want = Math.max(0.5, Math.min(12, Number(hrs) || 7));
+  const woke = Number((st && st.wokeAt) || 0);
+  if (woke && now - woke < 20 * 60e3) return { hrs: Math.min(want, 1.5), again: true };
+  return { hrs: want, again: false };
+}
+
 export function goSleep(uin, hours) {
   if (noSleep()) return { hrs: 0, until: 0, skipped: true };
   const st = load(uin);
