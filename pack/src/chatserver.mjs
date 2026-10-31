@@ -10,6 +10,30 @@ import { spawn } from 'node:child_process';
 import { PATHS } from './paths.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+// ---- 版本与更新检查（只读 GitHub 公开 API，不上传任何东西）----
+const SELF = (() => { try { return JSON.parse(fs.readFileSync(path.join(HERE, '..', 'package.json'), 'utf8')); } catch { return {}; } })();
+const GH_SLUG = process.env.QQBOT_GH_SLUG || 'Z-Zr77/DSChatBot';
+const UPD = { at: 0, latest: '', url: '', newer: false, err: '' };
+function verNum(v) { return String(v || '').replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0).slice(0, 3); }
+function verCmp(a, b) { const x = verNum(a), y = verNum(b); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); } return 0; }
+async function checkUpdate() {
+  if (process.env.QQBOT_NO_UPDATE === '1') return UPD;
+  try {
+    const r = await fetch('https://api.github.com/repos/' + GH_SLUG + '/releases/latest', {
+      headers: { 'user-agent': 'DSChatBot-update-check', accept: 'application/vnd.github+json' },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!r.ok) { UPD.err = 'HTTP ' + r.status; UPD.at = Date.now(); return UPD; }
+    const j = await r.json();
+    const latest = String(j.tag_name || j.name || '').trim();
+    UPD.latest = latest;
+    UPD.url = String(j.html_url || ('https://github.com/' + GH_SLUG + '/releases'));
+    UPD.newer = !!latest && verCmp(latest, SELF.version) > 0;
+    UPD.err = ''; UPD.at = Date.now();
+  } catch (e) { UPD.err = String(e && e.message || e); UPD.at = Date.now(); }
+  return UPD;
+}
 // 只在 %APPDATA%\DSChat 放一个指针文件（where.json），其余全部落在数据目录里：
 //   <dataDir>\chat\config.json   设置
 //   <dataDir>\chat\avatars\     头像
@@ -221,6 +245,12 @@ export function startServer(port = 3210) {
           const html = Buffer.from(rawHtml.replace('__WK_SCRIPT__', workdialog.bootstrap()), 'utf8');
           res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
           return res.end(html);
+        }
+
+        // ---- 有没有新版本 ----
+        if (p === '/api/update') {
+          if (Date.now() - UPD.at > 3600 * 1000) checkUpdate().catch(() => {});
+          return send(res, 200, { ok: true, current: SELF.version || '', latest: UPD.latest, newer: UPD.newer, url: UPD.url, err: UPD.err });
         }
 
         // ---- 状态 ----

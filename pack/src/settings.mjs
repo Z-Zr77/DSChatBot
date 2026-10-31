@@ -62,6 +62,8 @@ export const DEFAULTS = {
   // 工作模式：首期只做文件（读/写/预览/恢复/停止）。执行、联网、桌面默认关闭。
   dev: { noSleep: false },   // 开发测试期：true 时她不会真的去睡、也不提困
   work: {
+    // 总开关：默认关。关着的时候她只能聊天，任何工具（读/写/跑/联网）都拒。
+    toolsEnabled: false,
     defaultMode: 'write',
     approval: 'ask',     // ask=每条命令/联网都问；never=工作区内的命令不问（越权仍然问）
     lastRoot: '',

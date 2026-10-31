@@ -20,7 +20,7 @@ fs.mkdirSync(path.join(DATA, 'agent-home', 'memory', 'people'), { recursive: tru
 fs.mkdirSync(path.join(DATA, 'chat'), { recursive: true });
 fs.mkdirSync(path.join(TMP, 'home'), { recursive: true });
 fs.writeFileSync(path.join(DATA, 'setup.json'), JSON.stringify({ qq: { ownerUin: '10001', master: '10001' } }));
-fs.writeFileSync(path.join(DATA, 'config.json'), JSON.stringify({ reply: { debounceMs: 300, privateDelayMs: 0, groupDelayMs: 0 }, proactive: { enabled: false }, browse: { enabled: false }, tools: { enabled: true, maxRounds: 3, ownerOnly: true }, work: { exec: true, timeoutMin: 30 } }));
+fs.writeFileSync(path.join(DATA, 'config.json'), JSON.stringify({ reply: { debounceMs: 300, privateDelayMs: 0, groupDelayMs: 0 }, proactive: { enabled: false }, browse: { enabled: false }, tools: { enabled: true, maxRounds: 3, ownerOnly: true }, work: { toolsEnabled: true, exec: true, timeoutMin: 30 } }));
 
 // 假大脑：第一轮要命令（run_cmd），收到工具结果后回一句带标记的正文
 const seen = [];

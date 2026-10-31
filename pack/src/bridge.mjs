@@ -1126,6 +1126,7 @@ function workCfg() {
     desktop: w.desktop === true,
     suggestRoot: String(w.suggestRoot || path.join(PATHS.data, 'work', 'sessions')),
     defaultMode: String(w.defaultMode || 'write'),
+    toolsEnabled: w.toolsEnabled === true,
     lastRoot: String(w.lastRoot || ''),
   };
 }
@@ -1200,6 +1201,7 @@ function grantStillActive(conv, pinned) {
 
 // 工具要的能力 > 当前会话有没有。日常只给 fs:read；exec 首期一律不开
 function toolCapsOk(conv, name, scope) {
+  if (workCfg().toolsEnabled !== true) return { ok: false, err: '她现在不能动电脑：先去控制台「设置」把「允许她动电脑」打开（默认是关的）' };
   const t = toolbox.tools[name];
   const need = (t && t.caps) || [];
   if (!need.length) return { ok: false, err: '工具没有声明能力，按默认拒绝：' + name };   // 复查 R6
@@ -4092,7 +4094,7 @@ function startLocalChannel() {
       const m = st && st.caps ? modeOfCaps(st.caps) : String(workCfg().defaultMode || 'write');
       const __lastRoot = String(workCfg().lastRoot || '');
       const __lastExists = !!__lastRoot && (() => { try { return fs.statSync(__lastRoot).isDirectory(); } catch { return false; } })();
-      return __json(res, 200, { ok: true, approval: approvalCfg(), work: st, mode: m, modeName: MODE_NAME[m] || m, history: grants.history(12), recent: workRecent(), suggestRoot: workCfg().suggestRoot, places: commonPlaces(), edits, lastRoot: __lastRoot, lastRootExists: __lastExists });
+      return __json(res, 200, { ok: true, approval: approvalCfg(), toolsEnabled: workCfg().toolsEnabled === true, work: st, mode: m, modeName: MODE_NAME[m] || m, history: grants.history(12), recent: workRecent(), suggestRoot: workCfg().suggestRoot, places: commonPlaces(), edits, lastRoot: __lastRoot, lastRootExists: __lastExists });
     }
     if (p === '/work/edits' && req.method === 'GET') {
       const q = new URL(req.url, 'http://x');
@@ -4151,6 +4153,7 @@ function startLocalChannel() {
       const b = await __readBody(req);
       const w = workCfg();
       const key = workKey(__localConv());
+      if (w.toolsEnabled !== true) return __json(res, 403, { ok: false, err: '「允许她动电脑」是关着的：先到「设置」里打开，再选工作文件夹' });
       if (!b.root) return __json(res, 400, { ok: false, err: '缺工作目录' });
       const asked = path.resolve(String(b.root).trim());
       const capsWant = (Array.isArray(b.caps) && b.caps.length ? b.caps : [ 'fs:read' ]).map(String);
@@ -4187,6 +4190,15 @@ function startLocalChannel() {
       log('[work] start', r.ok ? r.state.id : r.err, root, exists ? '(已有文件夹)' : '(新建文件夹)');
       return __json(res, r.ok ? 200 : 400, r);
     }
+    if (p === '/work/tools' && req.method === 'POST') {
+      const b = await __readBody(req);
+      const on = b.enabled === true;
+      try { settings.patch({ work: { toolsEnabled: on } }); } catch (e) { return __json(res, 500, { ok: false, err: '存不进配置：' + e.message }); }
+      if (!on) { try { const a = grants.active(workKey(__localConv())); if (a) { grants.stop(workKey(__localConv())); log('[work] tools off → 停掉会话', a.id); } } catch {} }
+      log('[work] tools', on ? 'on' : 'off');
+      return __json(res, 200, { ok: true, enabled: on });
+    }
+
     if (p === '/work/mode' && req.method === 'POST') {
       const b = await __readBody(req);
       const want = String(b.mode || '').trim();

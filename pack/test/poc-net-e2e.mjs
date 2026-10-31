@@ -66,7 +66,7 @@ try {
     reply: { debounceMs: 200, privateDelayMs: 0, groupDelayMs: 0 },
     proactive: { enabled: false },
     browse: { enabled: false },
-    work: { net: { enabled: true, allowHosts: [ '127.0.0.1' ] } },
+    work: { toolsEnabled: true, net: { enabled: true, allowHosts: [ '127.0.0.1' ] } },
   }));
 
   child = spawn(process.execPath, [ path.join(SRC, 'bridge.mjs') ], {

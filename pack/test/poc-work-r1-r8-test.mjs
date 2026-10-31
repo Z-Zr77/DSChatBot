@@ -5,9 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve('pack');
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = path.join(ROOT, 'src');
 let pass = 0, fail = 0;
 const ok = (c, m, extra) => { if (c) { pass++; console.log('PASS', m); } else { fail++; console.log('FAIL', m, extra === undefined ? '' : extra); } };
@@ -41,7 +41,7 @@ const make = new Function('grants', 'toolbox', 'workCfg', 'workKey', 'workDeny',
   grab('toolScope') + '\n' + grab('grantStillActive') + '\n' + grab('toolCapsOk') + '\nreturn { toolScope, grantStillActive, toolCapsOk };');
 let execAllowed = false;
 const execCfgStub = () => ({ mode: 'workspace', allow: [], timeoutMs: 60000, maxOutput: 8000 });
-const api = make(grants, toolbox, () => ({ readRoots: [WS], exec: execAllowed, timeoutMin: 30 }), (c) => c.kind + ':' + c.id, () => [], path, execCfgStub);
+const api = make(grants, toolbox, () => ({ readRoots: [WS], exec: execAllowed, timeoutMin: 30, toolsEnabled: true }), (c) => c.kind + ':' + c.id, () => [], path, execCfgStub);
 
 // ---------- R1：任务开始固定授权，停止后不能借新授权 ----------
 const key = 'local:1';
@@ -127,7 +127,7 @@ const fake = http.createServer((req, res) => {
 fs.writeFileSync(path.join(DATA, 'setup.json'), JSON.stringify({ qq: { ownerUin: '10001', master: '10001' } }));
 fs.writeFileSync(path.join(DATA, 'config.json'), JSON.stringify({
   reply: { debounceMs: 100, privateDelayMs: 0, groupDelayMs: 0 }, proactive: { enabled: false }, browse: { enabled: false },
-  tools: { enabled: true, maxRounds: 2, ownerOnly: true }, work: { readRoots: [], timeoutMin: 30, exec: false },
+  tools: { enabled: true, maxRounds: 2, ownerOnly: true }, work: { toolsEnabled: true, readRoots: [], timeoutMin: 30, exec: false },
 }));
 fs.writeFileSync(API, JSON.stringify({ enabled: true, baseUrl: 'http://127.0.0.1:5691', model: 'stub', key: 'stub-key', maxTokens: 300 }, null, 2));
 const env = { ...process.env, QQBOT_DATA: DATA, QQBOT_API_FILE: API, QQBOT_LOCAL_PORT: '3691', QQBOT_UI_PORT: '3692', QQBOT_NAP_SKIP: '1', HOME: path.join(TMP, 'home'), USERPROFILE: path.join(TMP, 'home') };

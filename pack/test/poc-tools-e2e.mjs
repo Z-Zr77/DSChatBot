@@ -70,7 +70,7 @@ try {
   fs.writeFileSync(path.join(DATA, 'setup.json'), JSON.stringify({ qq: { ownerUin: U, master: U } }));
   fs.mkdirSync(path.join(DATA, 'work'), { recursive: true });
   fs.writeFileSync(path.join(DATA, 'work', '整理后复查-20261029.md'), '# 记录');
-  fs.writeFileSync(path.join(DATA, 'config.json'), JSON.stringify({ reply: { debounceMs: 300, privateDelayMs: 0, groupDelayMs: 0 }, proactive: { enabled: false }, browse: { enabled: false } }));
+  fs.writeFileSync(path.join(DATA, 'config.json'), JSON.stringify({ reply: { debounceMs: 300, privateDelayMs: 0, groupDelayMs: 0 }, proactive: { enabled: false }, browse: { enabled: false }, work: { toolsEnabled: true, readRoots: [] } }));
 
   // 3) 起桥接（不连 NapCat，只用本地通道）
   child = spawn(process.execPath, [path.join(SRC, 'bridge.mjs')], {

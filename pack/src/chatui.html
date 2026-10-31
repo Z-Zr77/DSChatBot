@@ -304,10 +304,19 @@
     <button id="btnSearch" title="搜聊天记录">🔍</button>
     <button id="btnSet" title="设置">⚙</button>
   </header>
+  <div id="updBar" hidden>有新版本 <b id="updVer"></b> · <a id="updLink" target="_blank" rel="noopener">去看看</a> <button id="updX" title="先不看">×</button></div>
   <div class="scroll" id="scroll">
     <div class="empty" id="empty">还没聊过。说句话试试～</div>
   </div>
 
+  <style id="updStyle">
+  #updBar{display:flex;align-items:center;gap:6px;padding:6px 10px;font-size:12.5px;color:#cfd8e6;background:#1b2430;border-bottom:1px solid #2a3546}
+  #updBar[hidden]{display:none}
+  #updBar b{color:#7fd1a8}
+  #updBar a{color:#8fb7ff;text-decoration:none}
+  #updBar a:hover{text-decoration:underline}
+  #updBar button{margin-left:auto;background:none;border:0;color:#8b98ad;cursor:pointer;font-size:14px}
+  </style>
   <div id="traceWrap">
     <div class="thead">
       <b>本轮</b>
@@ -506,6 +515,23 @@ function stick(box){
   stick._on = true;
   clearTimeout(stick._t);
   stick._t = setTimeout(() => { stick._on = false; }, 500);
+}
+
+async function checkUpdate() {
+  try {
+    if (sessionStorage.getItem('updSkip') === '1') return;
+    const r = await fetch('/api/update', { cache: 'no-store' });
+    const j = await r.json();
+    if (!j || !j.newer || !j.latest) return;
+    const bar = document.getElementById('updBar');
+    if (!bar) return;
+    document.getElementById('updVer').textContent = j.latest;
+    const a = document.getElementById('updLink');
+    a.href = j.url || ('https://github.com/' + 'Z-Zr77/DSChatBot/releases');
+    bar.hidden = false;
+    const x = document.getElementById('updX');
+    if (x) x.onclick = () => { bar.hidden = true; try { sessionStorage.setItem('updSkip', '1'); } catch {} };
+  } catch {}
 }
 
 async function loadHistory(){
@@ -1141,6 +1167,8 @@ function showBrokeBar(msg) {
   if (location.hash === '#set') openSet();
   setInterval(() => { if (BRIDGE && !document.hidden) poll(); }, 2500);
   setInterval(checkState, 12000);
+  checkUpdate();
+  setInterval(checkUpdate, 6 * 3600 * 1000);
 })();
 </script>
 </body>

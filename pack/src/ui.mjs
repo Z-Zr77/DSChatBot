@@ -1338,7 +1338,7 @@ const server = http.createServer(async (req, res) => {
       try { const r = await fetch(LOCAL_URL() + '/work/suggest?topic=' + encodeURIComponent(q)); return send(res, 200, await r.json()); }
       catch (e) { return send(res, 200, { ok: false, err: String(e.message || e) }); }
     }
-    if ((p === '/api/work/start' || p === '/api/work/stop' || p === '/api/work/touch' || p === '/api/work/mode' || p === '/api/work/restore' || p === '/api/work/undo') && req.method === 'POST') {
+    if ((p === '/api/work/start' || p === '/api/work/stop' || p === '/api/work/touch' || p === '/api/work/mode' || p === '/api/work/tools' || p === '/api/work/restore' || p === '/api/work/undo') && req.method === 'POST') {
       const b = await body(req);
       const to = LOCAL_URL() + p.replace('/api', '');
       try { const r = await fetch(to, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b || {}) }); return send(res, r.status, await r.json()); }
@@ -2717,6 +2717,8 @@ async function loadState(){
     + '<span id="workBadge" class="pill">未开启</span></div>'
     + '<div class="dim" id="workInfo" style="margin-top:6px">日常聊天她只能看、不能改。要她动手改文件，点下面按钮，先选一个工作目录。</div>'
     + '<div id="workEdits" style="margin-top:10px"></div>'
+    + '<label class="row" style="margin-top:10px;gap:8px;cursor:pointer"><input type="checkbox" id="workTools" onchange="setWorkTools(this.checked)"> <span>允许她动电脑</span></label>'
+    + '<div class="dim" style="margin-top:4px;font-size:12px">关着的时候她只能聊天（默认）。打开后她才能在你选的文件夹里读/改文件、跑命令，动手前会问你。</div>'
     + '<div class="row" style="margin-top:10px;gap:8px"><button class="btn" onclick="openWorkDialog()">进入工作模式</button>'
     + '<button class="ghost btn" id="workStop" onclick="stopWork()" style="display:none">停止工作会话</button></div></div>'
     + '<div class="card"><div class="row" style="justify-content:space-between"><b>备份</b>'
@@ -2941,6 +2943,14 @@ function miniDialog(inner){
   return d;
 }
 const dlgInput = 'width:100%;box-sizing:border-box;margin:5px 0 10px;padding:9px;border-radius:8px;border:1px solid #2b313d;background:#0f1217;color:#e6e9ef;font-size:14px';
+// 允许她动电脑的总开关
+async function setWorkTools(on) {
+  const r = await api('/api/work/tools', { method: 'POST', body: { enabled: !!on } });
+  if (r && r.ok) toast(on ? '已允许她动电脑' : '已关掉：她现在只能聊天');
+  else toast('没保存成功：' + ((r && r.err) || '未知原因'));
+  render();
+}
+
 // ---- 工作模式（首期只有文件能力：读 / 改 / 预览 / 恢复 / 停止） ----
 let WORK = { active: false };
 async function loadWork(){
@@ -2949,6 +2959,8 @@ async function loadWork(){
     WORK = (r && r.work) || { active: false };
     const badge = $('#workBadge'), info = $('#workInfo'), stop = $('#workStop');
     if (!badge) return;
+    const cb = $('#workTools');
+    if (cb) cb.checked = !!(r && r.toolsEnabled === true);
     if (WORK.active) {
       const mins = Math.max(0, Math.round((WORK.leftMs || 0) / 60000));
       badge.textContent = '进行中';
