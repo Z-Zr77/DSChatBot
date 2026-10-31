@@ -1,0 +1,79 @@
+# 依赖 / 构建产物
+node_modules/
+pack/node_modules/
+pack/mobile-full/node_modules/
+pack/dist/
+pack/build/winCodeSign/
+
+# 内部文档与归档（不进开源库）
+_archive/
+promo/
+ARCH.md
+DECISIONS.md
+MAINTAIN.md
+DEVNOTES.md
+PROGRESS-*.md
+
+# 手机端测试数据（含真实 key）
+pack/mobile-full/data/
+pack/mobile-full/data-seed/
+
+# 私有笔记与内部决策（不公开）
+notes/
+NOTES.md
+手机端方案对比与决策.md
+
+# 运行数据（记忆、日志、密钥、表情包）——绝不能提交
+data/
+pack/data/
+deploy/data/
+deploy/napcat/
+*.log
+*.pid
+bridge.log
+napcat-console.log
+_probe*
+_tmp/
+*.bak
+*.bak-*
+
+# 密钥
+*.key
+aliyun.key
+ark.key
+api.json
+.env
+deploy/.env
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# 本地测试脚本
+pack/_*.cjs
+pack/_*.mjs
+pack/_*.png
+pack/_*.jpg
+pack/build6.log
+pack/build9.log
+
+# 发布脱敏脚本（内含个人信息检测规则）
+pack/build/sync-release.cjs
+
+# 本机专用的 NapCat 启动器（路径写死，不进开源库）
+napcat-run.bat
+run-core-hidden.vbs
+
+# 旧手机端 PoC（含测试数据，不进开源库）
+pack/mobile-full/
+
+# 开发日记（不进开源库）
+DEVNOTES*.md
+
+# 本地临时脚本
+pack/_tmp-*.ps1
+pack/_tmp*.cjs
+pack/_tmp*.mjs

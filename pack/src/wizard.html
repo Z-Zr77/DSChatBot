@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>设置向导 · DSChatBot</title>
+<style>
+:root{--bg:#0e1116;--panel:#161b23;--line:#262d38;--fg:#e6ecf5;--dim:#8b96a8;--acc:#5b9cf8}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 "Segoe UI","Microsoft YaHei",sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding:34px 24px 90px}
+h1{font-size:26px;margin:0 0 6px}
+.sub{color:var(--dim);margin:0 0 22px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px}
+.card h2{font-size:17px;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+.badge{font-size:12px;padding:1px 8px;border-radius:20px;border:1px solid var(--line);color:var(--dim)}
+.badge.ok{color:#7ee2a8;border-color:#255c3d;background:#13251b}
+.badge.bad{color:#ff9b9b;border-color:#542b32;background:#241318}
+.badge.wait{color:#f0c674;border-color:#5c4a25;background:#241f13}
+.tip{color:var(--dim);margin:6px 0 14px}
+.row{display:flex;align-items:center;gap:12px}
+input,button,select{font:inherit}
+input[type=text]{background:#0f141b;border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:9px 11px;flex:1;min-width:0}
+button{cursor:pointer;border-radius:8px;padding:8px 15px;border:1px solid transparent;font-weight:600}
+button.btn{background:linear-gradient(180deg,#6aa8ff,#4b8df0);color:#fff;border-color:#7fb4ff}
+button.ghost{background:#1b212c;color:var(--fg);border-color:var(--line)}
+button:active{transform:translateY(1px)}
+button:disabled{opacity:.5;cursor:default}
+table.env{width:100%;border-collapse:collapse;margin:4px 0 14px}
+table.env td{padding:8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+table.env td.k{width:170px;color:var(--dim)}
+table.env td.v{flex:1}
+a{color:var(--acc);text-decoration:none}
+.qrbox{display:flex;gap:16px;align-items:flex-start;background:#11161d;border:1px dashed var(--line);border-radius:10px;padding:14px;margin:12px 0}
+.qrbox img{width:168px;height:168px;background:#fff;border-radius:8px;padding:6px}
+.qrbox .hint{color:var(--dim);font-size:13px}
+.foot{position:fixed;left:0;right:0;bottom:0;background:#0b0e13;border-top:1px solid var(--line);padding:12px 24px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.foot .meta{color:var(--dim);font-size:12px;word-break:break-all}
+.msg{font-size:13px;color:var(--dim);margin-top:8px}
+.msg.bad{color:#ff9b9b}.msg.ok{color:#7ee2a8}
+.lang{position:absolute;right:24px;top:22px;display:flex;gap:6px}
+.lang button{background:#1b212c;color:var(--dim);border:1px solid var(--line);padding:4px 10px;border-radius:7px;font-weight:500}
+.lang button.on{background:#243044;color:#cfe0ff;border-color:#3a4b66}
+</style>
+</head>
+<body>
+<div class="wrap" style="position:relative">
+  <div class="lang">
+    <button id="btnZh" class="on">中文</button>
+    <button id="btnEn">EN</button>
+  </div>
+  <h1 data-i18n="h1">接上你的 QQ</h1>
+  <p class="sub" data-i18n="sub">模型、人格、主人号、数据目录都在控制台里设置，这里只确认 QQ 和 NapCat。</p>
+
+  <div class="card">
+    <h2><span data-i18n="c1.title">QQ 和 NapCat</span> <span id="badge" class="badge wait" data-i18n="badge.scanning">检测中…</span></h2>
+    <p class="tip" data-i18n="c1.hint">这两样需要你自己装（版权原因不能打包）。装好后点「重新扫描」。</p>
+
+    <div id="blockers"></div>
+
+    <table class="env">
+      <tr>
+        <td class="k" data-i18n="c1.qq">QQ 客户端</td>
+        <td class="v"><span class="dot" id="qqDot"></span> <span id="qqText">—</span> <a href="https://im.qq.com/pcqq" target="_blank" data-i18n="link.dl">下载</a></td>
+      </tr>
+      <tr>
+        <td class="k" data-i18n="c1.nc">NapCat</td>
+        <td class="v"><span class="dot" id="ncDot"></span> <span id="ncText">—</span> <a href="https://github.com/NapNeko/NapCatQQ/releases" target="_blank" data-i18n="link.dl">下载</a></td>
+      </tr>
+      <tr>
+        <td class="k" data-i18n="c1.ob">OneBot 连接</td>
+        <td class="v"><span class="dot" id="obDot"></span> <span id="obText">—</span></td>
+      </tr>
+    </table>
+
+    <p class="tip" data-i18n="c1.dirLabel">NapCat 目录（里面应有 launcher.bat）</p>
+    <div class="row">
+      <input type="text" id="napcatDir" data-i18n-ph="c1.dirPh" placeholder="例如 D:\NapCat\shell">
+      <button class="ghost" onclick="rescan()" data-i18n="c1.rescan">重新扫描</button>
+      <button class="btn" onclick="installNapcat()" data-i18n="c1.install">一键安装 NapCat</button>
+    </div>
+
+    <div class="qrbox" id="qrbox" style="display:none">
+      <img id="qr" alt="QR">
+      <div>
+        <div style="font-weight:600" data-i18n="c1.qrTitle">用手机 QQ 小号扫码登录</div>
+        <div class="hint" data-i18n="c1.qrHint">扫完在手机上点「确认登录」，这里会自动认出号码，不用手填。</div>
+        <div class="hint" id="qrMeta"></div>
+      </div>
+    </div>
+
+    <p class="tip" data-i18n="c1.uinLabel" style="margin-top:14px">机器人 QQ（小号）</p>
+    <div class="row">
+      <input type="text" id="uin" readonly placeholder="扫码后自动填入">
+    </div>
+  </div>
+
+  <div class="foot">
+    <div class="meta">
+      <span data-i18n="foot.dataLabel">数据目录</span>：<span id="dataDir">—</span>
+      <span id="footMsg" class="msg"></span>
+    </div>
+    <div class="row">
+      <button class="ghost" onclick="finish(true)" data-i18n="foot.later">跳过，直接进控制台</button>
+      <button class="btn" id="btnSave" onclick="save()" data-i18n="foot.save">保存并进控制台</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const DICT = {
+  zh: {
+    'h1': '接上你的 QQ',
+    'sub': '模型、人格、主人号、数据目录都在控制台里设置，这里只确认 QQ 和 NapCat。',
+    'c1.title': 'QQ 和 NapCat',
+    'c1.hint': '这两样需要你自己装（版权原因不能打包）。装好后点「重新扫描」。',
+    'c1.qq': 'QQ 客户端', 'c1.nc': 'NapCat', 'c1.ob': 'OneBot 连接',
+    'c1.dirLabel': 'NapCat 目录（里面应有 launcher.bat）', 'c1.dirPh': '例如 D:\\NapCat\\shell',
+    'c1.rescan': '重新扫描', 'c1.install': '一键安装 NapCat',
+    'c1.qrTitle': '用手机 QQ 小号扫码登录',
+    'c1.qrHint': '扫完在手机上点「确认登录」，这里会自动认出号码，不用手填。',
+    'c1.uinLabel': '机器人 QQ（小号）',
+    'link.dl': '下载',
+    'badge.scanning': '检测中…', 'badge.ready': '就绪', 'badge.incomplete': '待补',
+    'foot.dataLabel': '数据目录', 'foot.later': '跳过，直接进控制台', 'foot.save': '保存并进控制台',
+    'msg.saving': '保存中…', 'msg.saved': '已保存，正在打开控制台…',
+    'msg.qqOk': '已安装：', 'msg.qqNo': '没找到，去装了再回来',
+    'msg.ncOk': '已找到：', 'msg.ncHalf': '目录在，但缺少 launcher.bat', 'msg.ncNo': '没找到',
+    'msg.obOk': '已登录：', 'msg.obNo': '未连接（需要先扫码登录小号）',
+    'msg.none': '没有待办',
+    'blk.qq': '还没装 QQ 客户端', 'blk.nc': '还没装 NapCat', 'blk.login': '还没扫码登录小号',
+    'msg.installing': '正在下载安装 NapCat…', 'msg.installed': 'NapCat 装好了，点「重新扫描」',
+  },
+  en: {
+    'h1': 'Connect your QQ',
+    'sub': 'Model, persona, owner account and data folder are configured in the console. Only QQ and NapCat here.',
+    'c1.title': 'QQ and NapCat',
+    'c1.hint': 'Install these two yourself (cannot be bundled). Then press "Rescan".',
+    'c1.qq': 'QQ client', 'c1.nc': 'NapCat', 'c1.ob': 'OneBot',
+    'c1.dirLabel': 'NapCat folder (must contain launcher.bat)', 'c1.dirPh': 'e.g. D:\\NapCat\\shell',
+    'c1.rescan': 'Rescan', 'c1.install': 'Install NapCat',
+    'c1.qrTitle': 'Scan with the bot QQ account',
+    'c1.qrHint': 'Confirm on your phone; the account number is filled automatically.',
+    'c1.uinLabel': 'Bot QQ (secondary account)',
+    'link.dl': 'Download',
+    'badge.scanning': 'Checking…', 'badge.ready': 'Ready', 'badge.incomplete': 'Incomplete',
+    'foot.dataLabel': 'Data folder', 'foot.later': 'Skip to console', 'foot.save': 'Save and open console',
+    'msg.saving': 'Saving…', 'msg.saved': 'Saved, opening console…',
+    'msg.qqOk': 'Installed: ', 'msg.qqNo': 'Not found',
+    'msg.ncOk': 'Found: ', 'msg.ncHalf': 'Folder exists but launcher.bat is missing', 'msg.ncNo': 'Not found',
+    'msg.obOk': 'Logged in: ', 'msg.obNo': 'Not connected (scan the QR first)',
+    'msg.none': 'Nothing pending',
+    'blk.qq': 'QQ client is missing', 'blk.nc': 'NapCat is missing', 'blk.login': 'Bot QQ is not logged in',
+    'msg.installing': 'Downloading NapCat…', 'msg.installed': 'NapCat installed, press Rescan',
+  },
+};
+let LANG = localStorage.getItem('qqbot.lang') || 'zh';
+const t = (k) => (DICT[LANG] && DICT[LANG][k]) || (DICT.zh[k] || k);
+const $ = (id) => document.getElementById(id);
+function applyLang() {
+  document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-ph]').forEach((el) => { el.placeholder = t(el.dataset.i18nPh); });
+  $('btnZh').classList.toggle('on', LANG === 'zh');
+  $('btnEn').classList.toggle('on', LANG === 'en');
+}
+$('btnZh').onclick = () => { LANG = 'zh'; localStorage.setItem('qqbot.lang', LANG); applyLang(); };
+$('btnEn').onclick = () => { LANG = 'en'; localStorage.setItem('qqbot.lang', LANG); applyLang(); };
+
+async function get(url) { const r = await fetch(url, { cache: 'no-store' }); return r.json(); }
+async function post(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  let j = {}; try { j = await r.json(); } catch {}
+  return j;
+}
+function setDot(el, state) {
+  el.textContent = state === 'ok' ? '●' : state === 'wait' ? '◐' : '○';
+  el.style.color = state === 'ok' ? '#7ee2a8' : state === 'wait' ? '#f0c674' : '#ff9b9b';
+}
+let LAST = null;
+function paint(scan) {
+  LAST = scan;
+  const qq = scan.qq, nc = scan.napcat, ob = scan.onebot || {};
+  setDot($('qqDot'), qq ? 'ok' : 'bad');
+  $('qqText').textContent = qq ? t('msg.qqOk') + (qq.path || qq) : t('msg.qqNo');
+  const ncState = nc ? (nc.launcher ? 'ok' : 'wait') : 'bad';
+  setDot($('ncDot'), ncState);
+  $('ncText').textContent = nc ? (nc.launcher ? t('msg.ncOk') + nc.dir : t('msg.ncHalf')) : t('msg.ncNo');
+  setDot($('obDot'), ob.online ? 'ok' : 'wait');
+  $('obText').textContent = ob.online ? (t('msg.obOk') + (ob.nickname || '') + ' (' + ob.uin + ')') : t('msg.obNo');
+  if ($('napcatDir').dataset.touched !== '1' && nc && nc.dir) $('napcatDir').value = nc.dir;
+  if (ob.online && ob.uin) $('uin').value = ob.uin;
+
+  const bl = (scan.blockers || []).filter((b) => b);
+  $('blockers').innerHTML = bl.length ? bl.map((b) => '<div class="msg bad">• ' + (b.label || b) + '</div>').join('') : '';
+  const badge = $('badge');
+  if (!bl.length) { badge.className = 'badge ok'; badge.textContent = t('badge.ready'); }
+  else { badge.className = 'badge wait'; badge.textContent = t('badge.incomplete'); }
+
+  const box = $('qrbox');
+  if (ob.online) { box.style.display = 'none'; }
+  else {
+    box.style.display = 'flex';
+    if (scan.napcat && scan.napcat.qr) {
+      $('qr').src = '/qr.png?t=' + Date.now();
+      const age = scan.napcat.qrAgeMin;
+      $('qrMeta').textContent = (age != null) ? (LANG === 'zh' ? '（二维码生成于 ' + age + ' 分钟前）' : '(' + age + ' min ago)') : '';
+    } else {
+      $('qr').removeAttribute('src');
+      $('qrMeta').textContent = LANG === 'zh' ? '（还没拿到二维码：先启动 NapCat）' : '(no QR yet: start NapCat first)';
+    }
+  }
+  if (scan.data) $('dataDir').textContent = scan.data;
+}
+
+async function rescan() {
+  try { paint(await get('/api/scan')); } catch (e) {}
+}
+async function installNapcat() {
+  $('footMsg').className = 'msg';
+  $('footMsg').textContent = t('msg.installing');
+  const r = await post('/api/install-napcat', {});
+  $('footMsg').className = 'msg ' + (r.ok ? 'ok' : 'bad');
+  $('footMsg').textContent = r.ok ? t('msg.installed') : (r.err || 'failed');
+  rescan();
+}
+async function save() {
+  $('btnSave').disabled = true;
+  $('footMsg').className = 'msg';
+  $('footMsg').textContent = t('msg.saving');
+  const payload = { qq: { uin: $('uin').value.trim() }, napcat: { dir: $('napcatDir').value.trim() } };
+  const r = await post('/api/save', payload);
+  if (!r.ok) {
+    $('btnSave').disabled = false;
+    $('footMsg').className = 'msg bad';
+    $('footMsg').textContent = r.err || 'save failed';
+    return;
+  }
+  $('footMsg').className = 'msg ok';
+  $('footMsg').textContent = t('msg.saved');
+  finish(false);
+}
+async function finish(skip) {
+  const done = gotoConsole();
+  try { await post('/api/finish', { skip: skip ? 1 : 0 }); } catch (e) {}
+  await done;
+}
+async function gotoConsole() {
+  for (let i = 0; i < 30; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      const j = await fetch('/api/console', { cache: 'no-store' }).then((r) => r.json());
+      if (j && j.port) { location.href = 'http://127.0.0.1:' + j.port + '/'; return; }
+    } catch (e) {
+      // 向导端口已关：后端应该起来了，直接兜底跳默认控制台端口
+      location.href = 'http://127.0.0.1:3070/';
+      return;
+    }
+  }
+  location.href = 'http://127.0.0.1:3070/';
+}
+
+$('napcatDir').addEventListener('input', (e) => { e.target.dataset.touched = '1'; });
+
+(async () => {
+  applyLang();
+  try { const st = await get('/api/state'); if (st.dataDir) $('dataDir').textContent = st.dataDir; } catch (e) {}
+  rescan();
+  setInterval(rescan, 3000);
+  setInterval(() => { if ($('qrbox').style.display !== 'none') $('qr').src = '/qr.png?t=' + Date.now(); }, 5000);
+})();
+</script>
+</body>
+</html>

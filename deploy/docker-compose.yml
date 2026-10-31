@@ -1,0 +1,49 @@
+# QQ 聊天机器人 · Linux 一键部署（Docker）
+#
+#   cd deploy && ./install.sh
+#
+# 两个容器：
+#   qqbot-napcat  NapCat（QQ 协议端，官方镜像，负责登录 QQ / 收发消息）
+#   qqbot-app     机器人本体（Node：人格、记忆、语音、画图、控制台）
+#
+# 都用 host 网络：NapCat 的 3000/3001 只监听 127.0.0.1，不对外暴露。
+
+services:
+  napcat:
+    image: mlikiowa/napcat-docker:latest
+    container_name: qqbot-napcat
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      MODE: ws                     # 只开 WebSocket（+ 3000 HTTP）
+      WEBUI_TOKEN: ${WEBUI_TOKEN}  # NapCat 自己的 WebUI 密码（6099 端口）
+      NAPCAT_UID: ${NAPCAT_UID:-1000}
+      NAPCAT_GID: ${NAPCAT_GID:-1000}
+      TZ: Asia/Shanghai
+    volumes:
+      - ./napcat/config:/app/napcat/config
+      - ./napcat/qq:/app/.config/QQ
+      - ./napcat/cache:/app/napcat/cache
+      - ./napcat/logs:/app/napcat/logs
+
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: qqchatbot-app:latest
+    container_name: qqbot-app
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      - napcat
+    environment:
+      QQBOT_DATA: /data
+      QQBOT_NAPCAT_DIR: /napcat
+      QQBOT_NAPCAT_HOST: 127.0.0.1
+      QQBOT_UI_PORT: ${UI_PORT:-3070}
+      QQBOT_UI_HOST: 0.0.0.0          # 手机要访问就得监听所有网卡（有密码保护）
+      QQBOT_UI_PASS: ${UI_PASS}      # 控制台密码，空 = 不设密码（只建议本机用）
+      TZ: Asia/Shanghai
+    volumes:
+      - ./data:/data                 # 记忆、人格、表情包、日志、配置全在这
+      - ./napcat:/napcat:ro          # 只读挂载，用来读二维码和 NapCat 日志

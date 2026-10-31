@@ -1,0 +1,81 @@
+{
+  "name": "dschatbot",
+  "version": "0.5.0",
+  "private": true,
+  "description": "DSChatBot — 本地运行的 AI 聊天助手（自带设置向导）",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "node launch.mjs",
+    "dist": "electron-builder --win nsis portable",
+    "dist:installer": "electron-builder --win nsis",
+    "dist:portable": "electron-builder --win portable",
+    "test": "node run-tests.mjs"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.dschat.bot",
+    "productName": "DSChatBot",
+    "asar": false,
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "assets/**/*",
+      "launch.mjs",
+      "package.json",
+      "!src/wizard.html.bak"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "DSChatBot",
+      "artifactName": "DSChatBot-Setup-${version}.${ext}",
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "include": "build/installer.nsh"
+    },
+    "portable": {
+      "artifactName": "DSChatBot-Portable-${version}.${ext}",
+      "requestExecutionLevel": "user"
+    },
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "afterPack": "build/afterpack.cjs"
+  },
+  "dependencies": {
+    "jsqr": "^1.4.0",
+    "mpg123-decoder": "^1.0.3",
+    "pngjs": "^7.0.0",
+    "qrcode": "^1.5.4",
+    "silk-wasm": "^3.7.1",
+    "ws": "^8.22.0"
+  },
+  "productName": "DSChatBot"
+}
