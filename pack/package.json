@@ -1,6 +1,6 @@
 {
   "name": "dschatbot",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "private": true,
   "description": "DSChatBot — 本地运行的 AI 聊天助手（自带设置向导）",
   "main": "electron/main.cjs",

@@ -142,7 +142,24 @@ function startNotifyServer() {
   try { fs.mkdirSync(dir, { recursive: true }); } catch {}
   const portFile = path.join(dir, 'notify.port');
   notifySrv = http.createServer((req, res) => {
-    if (req.method !== 'POST' || !req.url || !req.url.startsWith('/notify')) { res.writeHead(404); res.end('no'); return; }
+    const u = String(req.url || '');
+    const jout = (o) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
+    if (u === '/autostart') {
+      if (req.method === 'GET') return jout({ ok: true, on: autoStartOn() });
+      if (req.method === 'POST') {
+        let b = '';
+        req.on('data', (c) => { b += c; if (b.length > 4096) req.destroy(); });
+        req.on('end', () => {
+          let j = {};
+          try { j = JSON.parse(b || '{}'); } catch {}
+          const ok = setAutoStart(!!j.on);
+          jout({ ok, on: autoStartOn() });
+        });
+        return;
+      }
+      res.writeHead(405); res.end('no'); return;
+    }
+    if (req.method !== 'POST' || !u.startsWith('/notify')) { res.writeHead(404); res.end('no'); return; }
     let body = '';
     req.on('data', (c) => { body += c; if (body.length > 8192) req.destroy(); });
     req.on('end', () => {

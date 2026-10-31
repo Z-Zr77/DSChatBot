@@ -438,6 +438,11 @@ pre{background:#0c0e12;border:1px solid #232a35;border-radius:12px;padding:12px;
       <div class="row" style="margin-top:12px"><button class="pri" onclick="saveBrain(this)">保存</button></div>
     </div>
     <div class="card">
+      <h2>常驻</h2>
+      <div class="kv"><span>开机自动启动（跟着系统起来，不用手动开）</span><b><input type="checkbox" id="sAuto" style="width:auto;transform:scale(1.3)"></b></div>
+      <div class="row" style="margin-top:10px"><button class="pri" onclick="saveAuto(this)">保存</button></div>
+    </div>
+    <div class="card">
       <h2>群聊</h2>
       <div class="kv"><span>在群里说话</span><b><input type="checkbox" id="sGEnabled" style="width:auto;transform:scale(1.3)"></b></div>
       <div class="kv"><span>只叫名字才理</span><b><input type="checkbox" id="sGNeedCall" style="width:auto;transform:scale(1.3)"></b></div>
@@ -822,6 +827,7 @@ async function loadSet(){
     q("sOwner", (su && (su.ownerUin || (su.qq && su.qq.ownerUin))) || "");
     q("sUrl", br.baseUrl || ""); q("sModel", br.model || ""); q("sKey", "");
     q("sPass", (c.ui && c.ui.pass) || "");
+    try { const au = await api("/api/autostart"); const ae = document.getElementById("sAuto"); if(ae) ae.checked = !!(au && au.on); } catch(e) {}
     const lan = document.getElementById("sLan"); if(lan) lan.checked = !!(c.ui && c.ui.lan);
     const ge = document.getElementById("sGEnabled"); if(ge) ge.checked = !(c.groups && c.groups.enabled === false);
     const gn = document.getElementById("sGNeedCall"); if(gn) gn.checked = !(c.groups && c.groups.needCall === false);
@@ -850,6 +856,34 @@ async function saveBrain(b){
   catch(e){ toast("保存失败：" + e.message, false) }
   finally{ b.disabled = false }
 }
+async function saveBrainCfgBox(b){
+  // 「设置」面板里的那份用 br* 字段；t-set 页用的是 s* 字段。两处各存各的，别互相顶。
+  const baseUrl = (document.getElementById("brUrl") || {}).value || "";
+  const model = (document.getElementById("brModel") || {}).value || "";
+  const key = (document.getElementById("brKey") || {}).value || "";
+  const bu = baseUrl.trim(), mo = model.trim(), ky = key.trim();
+  if(!mo) return toast("模型不能为空", false);
+  if(b) b.disabled = true;
+  try{
+    await api("/api/brain", { method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ baseUrl: bu, model: mo, key: ky }) });
+    const m = document.getElementById("brMsg"); if(m) m.textContent = "已保存，" + (ky ? "重启桥接后生效" : "下一条消息生效");
+    toast("已保存 API" + (ky ? "，点「重启桥接」后生效" : ""));
+  }catch(e){ toast("保存失败：" + (e.message || e), false) }
+  finally{ if(b) b.disabled = false }
+}
+async function saveAuto(b){
+  const el = document.getElementById("sAuto");
+  const on = !!(el && el.checked);
+  if(b) b.disabled = true;
+  try{
+    const r = await api("/api/autostart", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ on: on }) });
+    if(!r || !r.ok) throw new Error((r && r.err) || "没设成功");
+    if(el) el.checked = !!r.on;
+    toast(r.on ? "以后开机自动启动" : "已关掉开机自启");
+  }catch(e){ toast("设置失败：" + (e.message || e), false); try { el.checked = !on; } catch(_) {} }
+  finally{ if(b) b.disabled = false }
+}
+
 async function saveNet(b){
   const lanEl=document.getElementById("sLan"); if(!lanEl){ toast("手机上不用改这项"); return; } const lan = lanEl.checked;
   const pass = document.getElementById("sPass").value.trim();
@@ -1705,6 +1739,40 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { ok: true, dir: PATHS.data });
       } catch (e) {
         return send(res, 200, { ok: false, err: String((e && e.message) || e).slice(0, 200) });
+      }
+    }
+
+    if (p === '/api/autostart') {
+      try {
+        const pf = path.join(PATHS.data, 'notify.port');
+        const port = parseInt(String(fs.readFileSync(pf, 'utf8') || '').trim(), 10);
+        if (!port) return send(res, 200, { ok: false, err: '主程序还没起本地服务，重启一次程序再试' });
+        const call = (method, payload) => new Promise((resolve, reject) => {
+          const bodyStr = payload ? JSON.stringify(payload) : '';
+          const rq = http.request({
+            host: '127.0.0.1', port, path: '/autostart', method, timeout: 4000,
+            headers: bodyStr ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(bodyStr) } : {},
+          }, (rs) => {
+            let buf = '';
+            rs.on('data', (c) => { buf += c; });
+            rs.on('end', () => { try { resolve(JSON.parse(buf || '{}')); } catch { reject(new Error('返回不是 JSON')); } });
+          });
+          rq.on('error', reject);
+          rq.on('timeout', () => rq.destroy(new Error('超时')));
+          if (bodyStr) rq.write(bodyStr);
+          rq.end();
+        });
+        if (req.method === 'GET') {
+          const j = await call('GET');
+          return send(res, 200, { ok: true, on: !!(j && j.on) });
+        }
+        // 注意：body() 返回的是已经解析好的对象，不是字符串
+        const raw = await body(req);
+        const want = !!(raw && raw.on);
+        const j2 = await call('POST', { on: want });
+        return send(res, 200, { ok: !!(j2 && j2.ok), on: !!(j2 && j2.on) });
+      } catch (e) {
+        return send(res, 200, { ok: false, err: String((e && e.message) || e).slice(0, 120) });
       }
     }
 
@@ -3282,7 +3350,7 @@ async function loadCfg(){
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">接口地址</span><input id="brUrl" value="' + (br.baseUrl || '') + '" style="flex:1"></div>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">API Key</span><input id="brKey" type="password" placeholder="' + (br.keySet ? '已保存 ' + br.keyMask + '（留空不改）' : 'sk-…') + '" style="flex:1"></div>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">模型</span><input id="brModel" value="' + (br.model || '') + '" style="flex:1"><button class="ghost" data-kind="chat" onclick="pullModels(this.dataset.kind)">拉取</button></div>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim"></span><button class="ghost" onclick="testBrain()">测试连接</button><button class="btn" onclick="saveBrain()">保存 API</button><span class="dim" id="brMsg"></span></div>'
+    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim"></span><button class="ghost" onclick="testBrain()">测试连接</button><button class="btn" onclick="saveBrainCfgBox(this)">保存 API</button><span class="dim" id="brMsg"></span></div>'
     + '<p class="dim" style="margin:0 0 6px 210px">改完 API 后要点「重启桥接」才用新配置。</p>'
     + '<h4 class="sect">语音（TTS）</h4>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">供应商</span><select data-p="tts.provider" style="width:240px"><option value="aliyun"' + ((c.tts&&c.tts.provider==='aliyun')?' selected':'') + '>阿里云 CosyVoice</option><option value="openai"' + ((c.tts&&c.tts.provider==='openai')?' selected':'') + '>OpenAI 兼容 /audio/speech</option><option value="edge"' + ((c.tts&&c.tts.provider==='edge')?' selected':'') + '>Edge-TTS（免费兜底）</option></select></div>'

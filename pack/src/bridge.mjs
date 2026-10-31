@@ -3169,7 +3169,12 @@ async function replyNowInner(conv, body, extras = {}) {
   }
   if (!r.ok) {
     log('dsh failed:', r.err);
-    if (!extras.proactive && !extras.dry) await sendMsg(conv, '哎，我这边卡了一下，你再说一遍？');
+    if (!extras.proactive && !extras.dry) {
+      const bad = /401|Authentication Fails|invalid.*api[\s_-]?key|Unauthorized/i.test(String(r.err || ''));
+      await sendMsg(conv, bad
+        ? '我这边连不上模型：给我的那个 key 被服务器拒了（invalid api key）。你去控制台「设置」→「模型」里换一个新的 key，换好跟我说一声就行。'
+        : '哎，我这边卡了一下，你再说一遍？');
+    }
     return null;
   }
   if (r.sid) { sessions[extras.sessionKey || mk] = r.sid; saveSessions(); }
@@ -3758,6 +3763,7 @@ try {
   if (__pr.removed) log('[ledger] 清掉', __pr.removed, '个旧会话账本（保留', __pr.kept, '个）');
 } catch {}
 log('bridge starting');
+try { if (!String(cfg.ownerUin || '').trim()) log('[setup] 还没填主人 QQ：聊天窗按 local 这个身份记；去控制台「设置」填上以后就是你的号'); } catch {}
 let _tickTimer = setInterval(proactiveTick, P.tickMs);
 // 记忆巩固：每天 04:10 一次；错过就白天补（纯本地计算，不调模型）
 let __consolidateTick = 0;
@@ -3914,8 +3920,12 @@ function __serveMedia(res, name) {
     fs.createReadStream(p).pipe(res);
   } catch { __json(res, 500, { ok: false }); }
 }
+function __localId() {
+  const u = String(cfg.ownerUin || '').trim();
+  return u || 'local';   // 全新安装还没填主人 QQ 时，浏览器聊天窗用 'local' 当身份
+}
 function __localConv() {
-  return { kind: 'local', id: String(cfg.ownerUin), speaker: String(cfg.ownerUin) };
+  return { kind: 'local', id: __localId(), speaker: __localId() };
 }
 // 3098 只给本机控制台/桥接自己用：外站 Host、跨站 Origin、cross-site 一律拒
 // （3070/3210 的 Origin 修补覆盖不到这里，而 /say 会真的写记忆、调模型）
@@ -4003,8 +4013,8 @@ function startLocalChannel() {
     const p = u.pathname;
     if (p === '/ping') return __json(res, 200, { ok: true, who: cfg.ownerUin });
     if (p.startsWith('/media/')) return __serveMedia(res, decodeURIComponent(p.slice(7)));
-    if (p === '/msgs') return __json(res, 200, { ok: true, now: Date.now(), msgs: chatlog.since(cfg.ownerUin, Number(u.searchParams.get('since') || 0)) });
-    if (p === '/history') return __json(res, 200, { ok: true, msgs: chatlog.recent(cfg.ownerUin, Math.min(500, Number(u.searchParams.get('n') || 100))) });
+    if (p === '/msgs') return __json(res, 200, { ok: true, now: Date.now(), msgs: chatlog.since(__localConv().id, Number(u.searchParams.get('since') || 0)) });
+    if (p === '/history') return __json(res, 200, { ok: true, msgs: chatlog.recent(__localConv().id, Math.min(500, Number(u.searchParams.get('n') || 100))) });
     if (p === '/approvals' && req.method === 'GET') return __json(res, 200, { ok: true, items: approvalsList() });
     if (p === '/approve' && req.method === 'POST') {
       const b = await __readBody(req);
@@ -4035,7 +4045,7 @@ function startLocalChannel() {
           note = '[图片]';
           log('[local] image fail', e.message);
         }
-        chatlog.append(cfg.ownerUin, { dir: 'in', type: 'image', file: chatlog.stash(imgPath, cfg.ownerUin), src: 'app' });
+        chatlog.append(__localConv().id, { dir: 'in', type: 'image', file: chatlog.stash(imgPath, __localConv().id), src: 'app' });
       } else if (filePath && fs.existsSync(filePath)) {
         // 非图片附件：文本类小文件直接把内容带上（她能真读），其他只给大小说明
         let sizeTxt = '';
@@ -4054,11 +4064,12 @@ function startLocalChannel() {
         }
         body = text + '\n（我发来一个文件：' + fileName + '，' + sizeTxt + '。' + (preview ? '' : '你看不到文件内容；要看就让他进工作模式，你再用 read_file 读') + '）' + preview;
         note = '[文件] ' + fileName;
-        chatlog.append(cfg.ownerUin, { dir: 'in', type: 'file', file: chatlog.stash(filePath, cfg.ownerUin), text: fileName, src: 'app' });
+        chatlog.append(__localConv().id, { dir: 'in', type: 'file', file: chatlog.stash(filePath, __localConv().id), text: fileName, src: 'app' });
         log('[local] file received:', fileName, sizeTxt, preview ? '(带预览)' : '');
       }
-      if (text) chatlog.append(cfg.ownerUin, { dir: 'in', type: 'text', text, src: 'app' });
-      try { appendLog(cfg.ownerUin, '[App] ' + (text || note || '[附件]')); } catch {}
+      const __lid = __localConv().id;
+      if (text) chatlog.append(__lid, { dir: 'in', type: 'text', text, src: 'app' });
+      try { appendLog(__lid, '[App] ' + (text || note || '[附件]')); } catch {}
       try { log('[App] <-', (text || note || '[附件]').slice(0, 120)); } catch {}
       try { noteIncoming(__localConv(), text || note || '[附件]', imgPath && fs.existsSync(imgPath) ? imgPath : ''); } catch {}
       try { grants.touch(workKey(__localConv())); } catch {}   // 复查 R8：他发消息才续期
