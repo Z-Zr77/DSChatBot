@@ -249,7 +249,7 @@ export function startServer(port = 3210) {
 
         // ---- 有没有新版本 ----
         if (p === '/api/update') {
-          if (Date.now() - UPD.at > 3600 * 1000) checkUpdate().catch(() => {});
+          if (Date.now() - UPD.at > 3600 * 1000) { try { await checkUpdate(); } catch {} }
           return send(res, 200, { ok: true, current: SELF.version || '', latest: UPD.latest, newer: UPD.newer, url: UPD.url, err: UPD.err });
         }
 
