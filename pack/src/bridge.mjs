@@ -2029,7 +2029,7 @@ function replyDelay(isGroup, text) {
 
   const d = String(text || '');
   // 群里不玩这套：群聊要接得上话，太慢等于没在
-  if (isGroup) return { ms: Math.round(Math.min(15000, total)), skip: false };
+  if (isGroup) return { ms: Math.round(Math.min(15000, total) * delayScale()), skip: false };
 
   // 私人聊天：她有自己的生活
   const roll = Math.random();
@@ -2040,8 +2040,13 @@ function replyDelay(isGroup, text) {
 
   // 不回：只挑那种"可回可不回"的闲话，正事、问句、让他做的事一律要回
   const casual = !/[?？]/.test(d) && d.length <= 30 && !/(帮|给我|看看|发我|拍|记得|明天|几点|在哪|怎么|为啥|为什么|能不能|可以|好不)/.test(d);
-  const skip = casual && Math.random() < 0.12;
-  return { ms: Math.round(Math.min(7200000, ms)), skip };
+  const skip = casual && Math.random() < 0.12 && delayScale() > 0;
+  return { ms: Math.round(Math.min(7200000, ms) * delayScale()), skip };
+}
+// 测试里不能真等两小时：run-tests 会把 QQBOT_DELAY_SCALE 设成 0
+function delayScale() {
+  const v = Number(process.env.QQBOT_DELAY_SCALE);
+  return Number.isFinite(v) && v >= 0 ? v : 1;
 }
 const BOT_NAME_DEFAULT = '大肥鱼';
 

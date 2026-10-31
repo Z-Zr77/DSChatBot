@@ -70,6 +70,8 @@ if (!list.length) {
 // 测试里若忘记设 QQBOT_API_FILE，也不许落到 src/api.json
 const env = { ...process.env };
 if (!env.QQBOT_API_FILE) env.QQBOT_API_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'qqbt-api-')), 'api.json');
+// 她会"晚点回"甚至"这次不回"之后，测试不能真等：延迟统一乘 0，也不许装死
+if (!env.QQBOT_DELAY_SCALE) env.QQBOT_DELAY_SCALE = '0';
 
 let pass = 0;
 let fail = 0;
