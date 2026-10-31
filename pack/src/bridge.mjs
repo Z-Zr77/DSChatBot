@@ -77,9 +77,23 @@ const cfg = {
 // 分发版：大脑走直连 API（brain.mjs），保留旧函数名让调用点不用改
 const askDsh = (...args) => brain.ask(...args);
 
+// 日志：写文件 + 控制台。每 200 行查一次大小，超过 8MB 就滚一份 bridge.log.1，
+// 不让它无限长（之前跑了 6 天 900KB，再久一点控制台「日志」页就没法看了）。
+let _logLines = 0;
 function log(...args) {
   const line = `[${new Date().toISOString()}] ${args.join(' ')}`;
-  try { fs.appendFileSync(cfg.logFile, line + '\n'); } catch {}
+  try {
+    fs.appendFileSync(cfg.logFile, line + '\n');
+    if (++_logLines % 200 === 0) {
+      try {
+        if (fs.statSync(cfg.logFile).size > 8 * 1024 * 1024) {
+          const old = cfg.logFile + '.1';
+          try { fs.unlinkSync(old); } catch {}
+          fs.renameSync(cfg.logFile, old);
+        }
+      } catch {}
+    }
+  } catch {}
   console.log(line);
 }
 
@@ -3461,6 +3475,7 @@ async function replyNowInner(conv, body, extras = {}) {
 
 const QZ_FILE = path.join(RQ, 'state', 'qzone.json');
 const QZ_FORCE = path.join(RQ, 'qzone.once');
+let _qzoneOfflineLoggedAt = 0;
 
 function readJSONSafe(f, dflt) {
   try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return dflt; }
@@ -3471,6 +3486,15 @@ async function qzoneTick() {
   try {
     const q = settings.load().qzone || {};
     if (!q.enabled) return;
+    // 说说必须经 NapCat 的 QQ 会话发出去：没连上时先生成再发必然失败，白烧一次大脑调用
+    // （之前 6 天空烧了 191 次）。所以先看连接，再决定要不要写。
+    if (!QQ_ONLINE) {
+      if (Date.now() - _qzoneOfflineLoggedAt > 6 * 3600 * 1000) {
+        _qzoneOfflineLoggedAt = Date.now();
+        log('[qzone] QQ 没连上，跳过（要发空间说说先去控制台扫码登录 QQ）');
+      }
+      return;
+    }
     if (budget.level() >= 1) { log('[qzone] 预算降耗，跳过'); return; }
     let force = false;
     try { fs.unlinkSync(QZ_FORCE); force = true; } catch {}
@@ -3526,7 +3550,7 @@ async function qzoneTick() {
     fs.writeFileSync(QZ_FILE, JSON.stringify({ lastDate: d, lastAt: Date.now(), text: final }, null, 2), 'utf8');
     log('[qzone] 已发布 |', text.replace(/\n/g, ' ').slice(0, 80));
   } catch (e) {
-    log('[qzone] error', e.message);
+    log('[qzone] error', QQ_ONLINE ? e.message : 'QQ 断开了，这条没发出去');
   }
 }
 
@@ -3673,17 +3697,24 @@ const seen = new Set();
 async function connectWs() {
   const WS_URL = () => `ws://${napHost()}:${SETUP.onebot.wsPort}`;
   let backoff = 1000;
-  let fails = 0;
+  let fails = 0;        // 连着失败几次（只管退避 + 限流）
+  let downAt = 0;       // 这轮掉线的起点，用来算断了多久
+  let lastNoticeAt = 0; // 上次记「没连上」的时间
+  let everConnected = false; // 这一进程里连上过没有：区分「从没连上」和「连上又掉」
   for (;;) {
     try {
       await new Promise((resolve, reject) => {
-        if (fails < 2) log('connecting', WS_URL());
+        if (fails === 0 && !downAt) log('connecting', WS_URL());
         const ws = new WebSocket(WS_URL());
         ws.addEventListener('open', () => {
+          const gap = downAt ? Math.round((Date.now() - downAt) / 1000) : 0;
           backoff = 1000;
           fails = 0;
+          downAt = 0;
           QQ_ONLINE = true;
-          log('ws connected');
+          // 只记有意义的两行：第一次连上 / 掉线后又连上（带断了多久）。不再每次都打 connecting。
+          log(everConnected ? `QQ 重连上了（断了 ${gap} 秒）` : 'ws connected');
+          everConnected = true;
           setTimeout(() => { catchUp(); }, 2500);   // 补收掉线期间的消息
           setTimeout(() => { seedNames(); }, 4000); // 顺便把好友昵称拉一遍
         });
@@ -3700,15 +3731,27 @@ async function connectWs() {
             else if (ev.post_type === 'notice') { onNotice(ev).catch(e => log('notice error', e.message)); }
           } catch (err) { log('ws parse error', err.message); }
         });
-        ws.addEventListener('close', () => reject(new Error('closed')));
-        ws.addEventListener('error', () => reject(new Error('ws error')));
+        // 掉线就把状态翻回去：之前这里不清 QQ_ONLINE，第一次掉线之后
+        // 主动消息会一直按「QQ 还在线」往 NapCat 发（发不出去、也不弹 Windows 通知）。
+        ws.addEventListener('close', (ev) => {
+          if (QQ_ONLINE) { QQ_ONLINE = false; log('QQ 掉线: 连接关闭', ev && ev.code ? `code ${ev.code}` : ''); }
+          reject(new Error('closed'));
+        });
+        ws.addEventListener('error', () => {
+          if (QQ_ONLINE) { QQ_ONLINE = false; log('QQ 掉线: ws error'); }
+          reject(new Error('ws error'));
+        });
       });
     } catch (e) {
       fails++;
-      // 没扫码时内核不跑，这条会一直失败；只在第 1 次、第 5 次和每 20 次（约 10 分钟）记一行，别刷屏
-      if (fails === 1 || fails === 5 || fails % 20 === 0) {
-        log('ws down:', e.message, 'retry', backoff,
-          fails === 1 ? '（NapCat 内核没在跑：QQ 没登录时正常，扫码后自动连上）' : '');
+      if (!downAt) downAt = Date.now();
+      // 限流：从没连上过 → 第一次 + 每 10 分钟各一行（这段时间多半是根本没登录 QQ）；
+      // 连上又掉 → 上面「QQ 掉线」已经交代过，这里不再重复刷。
+      const now = Date.now();
+      if (!everConnected && (fails === 1 || now - lastNoticeAt >= 10 * 60 * 1000)) {
+        lastNoticeAt = now;
+        log('QQ 没连上:', e.message, `（第 ${fails} 次，退避 ${backoff}ms）`,
+          fails === 1 ? 'NapCat 内核没在跑：没登录 QQ 时正常，要用 QQ 就去控制台点「启动扫码登录 QQ」' : '');
       }
       await new Promise(r => setTimeout(r, backoff));
       backoff = Math.min(backoff * 2, 30000);
