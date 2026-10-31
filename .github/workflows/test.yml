@@ -10,6 +10,12 @@ jobs:
   test:
     runs-on: windows-latest
     timeout-minutes: 20
+    env:
+      # runner 的 %TEMP% 是 8.3 短名（C:\Users\RUNNER~1\...），
+      # 而产品会把路径 realpath 成长名；临时目录放到长名路径下，避免测试里
+      # "记录的路径 == 传入的路径" 这类断言因短名/长名不一致而假失败。
+      TMP: C:\tmp
+      TEMP: C:\tmp
     steps:
       - uses: actions/checkout@v4
 
@@ -18,6 +24,9 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: pack/package-lock.json
+
+      - name: 准备临时目录
+        run: New-Item -ItemType Directory -Force -Path C:\tmp | Out-Null
 
       - name: 安装依赖
         working-directory: pack
