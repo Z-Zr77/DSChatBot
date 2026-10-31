@@ -5,6 +5,9 @@
 
 Windows · 本地数据 · 你自己的模型 Key · [MIT](LICENSE)
 
+[![tests](https://github.com/Z-Zr77/DSChatBot/actions/workflows/test.yml/badge.svg)](https://github.com/Z-Zr77/DSChatBot/actions/workflows/test.yml)
+[![release](https://img.shields.io/github/v/release/Z-Zr77/DSChatBot?color=3b82f6)](https://github.com/Z-Zr77/DSChatBot/releases)
+
 ---
 
 ## 她是什么
