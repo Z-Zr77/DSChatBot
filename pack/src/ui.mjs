@@ -435,7 +435,7 @@ pre{background:#0c0e12;border:1px solid #232a35;border-radius:12px;padding:12px;
       <div style="margin-top:10px"><div class="dim" style="font-size:12.5px">接口地址</div><input id="sUrl"></div>
       <div style="margin-top:10px"><div class="dim" style="font-size:12.5px">模型</div><input id="sModel"></div>
       <div style="margin-top:10px"><div class="dim" style="font-size:12.5px">API Key（留空不改）</div><input id="sKey" type="password"></div>
-      <div class="row" style="margin-top:12px"><button class="pri" onclick="saveBrain(this)">保存</button></div>
+      <div class="row" style="margin-top:12px"><button class="pri" onclick="saveBrainPage(this)">保存</button></div>
     </div>
     <div class="card">
       <h2>常驻</h2>
@@ -517,7 +517,7 @@ let CHAT_SINCE = 0;
 let CHAT_TIMER = null;
 const chatEsc = (t) => String(t == null ? '' : t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const chatTime = (at) => { const d = new Date(at); return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0') };
-function chatAdd(m, silent){
+function chatAdd_legacy(m, silent){
   const box = $('#chatBox'); if (!box) return;
   const e0 = box.querySelector('.chatempty'); if (e0) e0.remove();
   const isIn = m.dir === 'in';
@@ -545,7 +545,7 @@ function chatAdd(m, silent){
   box.appendChild(wrap);
   if (!silent) box.scrollTop = box.scrollHeight;
 }
-async function chatLoadHistory(){
+async function chatLoadHistory_legacy(){
   try{
     const r = await api('/api/chat/history?n=80');
     if (!r || !r.ok || !Array.isArray(r.msgs)) return;
@@ -556,7 +556,7 @@ async function chatLoadHistory(){
     CHAT_SINCE = r.msgs.length ? r.msgs[r.msgs.length - 1].at : Date.now();
   }catch(e){}
 }
-async function chatPoll(){
+async function chatPoll_legacy(){
   try{
     const r = await api('/api/chat/msgs?since=' + CHAT_SINCE);
     if (!r || !r.ok) { $('#chatHint').textContent = (r && r.err) ? r.err : ''; return; }
@@ -564,7 +564,7 @@ async function chatPoll(){
     for (const m of (r.msgs || [])) if (m.at > CHAT_SINCE) { chatAdd(m); CHAT_SINCE = m.at; if (m.dir === 'out') chatNotify(m.text || (m.type === 'image' ? '[图片]' : m.type === 'voice' ? '[语音]' : '')); }
   }catch(e){}
 }
-function chatBoot(){
+function chatBoot_legacy(){
   if (CHAT_TIMER) { chatPoll(); return; }
   chatLoadHistory();
   CHAT_TIMER = setInterval(() => { const t = document.getElementById('t-chat'); if (t && t.classList.contains('on')) chatPoll(); }, 1500);
@@ -572,7 +572,7 @@ function chatBoot(){
   ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatSend(); } });
   ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(140, ta.scrollHeight) + 'px'; });
 }
-async function chatSend(){
+async function chatSend_legacy(){
   const ta = $('#chatIn');
   const text = (ta.value || '').trim();
   if (!text) return;
@@ -685,10 +685,18 @@ function go(t, el){
 // 深链：/m#chat 直接进聊天
 try { if (location.hash === '#chat') { const b = document.querySelector('nav button[data-t=\"chat\"]'); if (b) go('chat', b); } } catch {}
 let STATE = {};
-function qrClosedCard(){return '<div class="card"><div class="row" style="justify-content:space-between"><b>QQ 接入已关闭</b><button class="pri" onclick="qqStartScan(this)">启动扫码登录 QQ</button></div><div class="hint">聊天用 DSChat 就够，要用 QQ 时再点右边这个按钮，才会拉起内核并出码。</div></div>';}
-function paintQr(S){
+function napcatGuide(S){
+  if (!S || S.napcatReady) return '';
+  const dir = (S && S.napcatDir) ? String(S.napcatDir) : '';
+  return '<div class="hint">要用 QQ 聊，得先装 <b>QQ 内核（NapCat，开源免费）</b>：'
+    + '<a href="https://github.com/NapNeko/NapCatQQ/releases" target="_blank" rel="noopener">去下载</a>，装好后'
+    + '在设置里把目录填成它所在的位置（里面有 launcher.bat 那一层），或者右键托盘图标 →「设置向导」直接一键装。'
+    + (dir ? '（现在找的是 <code>' + dir + '</code>）' : '') + '</div>';
+}
+function qrClosedCard(S){return '<div class="card"><div class="row" style="justify-content:space-between"><b>QQ 接入已关闭</b><button class="pri" onclick="qqStartScan(this)">启动扫码登录 QQ</button></div><div class="hint">聊天用 DSChat 就够，要用 QQ 时再点右边这个按钮，才会拉起内核并出码。</div>' + napcatGuide(S) + '</div>';}
+function paintQr_legacy(S){
 const box=$('#qrCard');
-if (!S.qqEnabled) { box.innerHTML = qrClosedCard(); return }
+if (!S.qqEnabled) { box.innerHTML = qrClosedCard(S); return }
   if (S.login) { box.innerHTML=''; return }
   const qr=S.qr||{};
   const age = qr.exists ? Math.round((Date.now()-qr.at)/1000) : -1;
@@ -696,7 +704,8 @@ if (!S.qqEnabled) { box.innerHTML = qrClosedCard(); return }
 if (stale) {
   box.innerHTML = '<div class="card"><div class="row" style="justify-content:space-between"><b>QQ 接入已开启，但没有有效二维码</b>'
     + '<button class="pri" onclick="qqStartScan(this)">启动扫码登录 QQ</button></div>'
-    + '<div class="hint">当前守护状态：' + ((S.guard && S.guard.status) || '未知') + '。点上面按钮会拉起 QQ 内核并生成新码；出码后再点「立即换一张」可以强制换。</div></div>';
+    + '<div class="hint">当前守护状态：' + ((S.guard && S.guard.status) || '未知') + '。点上面按钮会拉起 QQ 内核并生成新码；出码后再点「立即换一张」可以强制换。</div>'
+    + napcatGuide(S) + '</div>';
   return;
 }
   box.innerHTML = '<div class="card"><h2>需要扫码登录</h2>'
@@ -753,7 +762,7 @@ async function qrNow(btn){
   }
   btn.disabled=false; btn.textContent='立即换一张'; toast('还没出新码，等会再点');
 }
-async function restartBridge(btn){
+async function restartBridge_legacy(btn){
   if(!(await askConfirm('确定重启桥接？', '重启桥接'))) return;
   btn.disabled=true; btn.textContent='重启中…';
   try{ await api('/api/restart',{method:'POST'}) }catch(e){}
@@ -780,11 +789,11 @@ async function load(){
     if(n && n.lan){ $('#c-net').style.display=''; $('#netHint').innerHTML='地址：<code>'+((n.urls&&n.urls[0])||'')+'</code><br>访问密码：<code>'+(n.pass||'(未设置)')+'</code>'; }
   }catch(e){}
 }
-async function loadPersona(){
+async function loadPersona_legacy(){
   const r=await api('/api/persona');
   $('#persona').value=(r&&r.text)||'';
 }
-async function savePersona(btn){
+async function savePersona_legacy(btn){
   btn.disabled=true; btn.textContent='保存中…';
   try{ await api('/api/persona',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:$('#persona').value})}); toast('已保存',1) }
   catch(e){ toast('保存失败') }
@@ -796,7 +805,7 @@ function memSource(it){
   if (it && it.src) return '聊天';
   return '手动/未知';
 }
-async function loadMem(){
+async function loadMem_legacy(){
   // 先问一下主人号（服务端 /api/memory 需要 uin，不带就返回空）
   let uin='';
   try{ const su=await api('/api/setup'); uin=(su&&su.qq&&(su.qq.ownerUin||su.qq.master))||''; }catch(e){}
@@ -811,7 +820,7 @@ async function loadMem(){
     $('#stThumb').innerHTML=list.slice(0,8).map(x=>'<img src="/sticker/'+encodeURIComponent(x.file)+'">').join('');
   }catch(e){}
 }
-async function loadLog(btn){
+async function loadLog_legacy(btn){
   if(btn){ btn.disabled=true; btn.textContent='读取中…' }
   const r=await api('/api/log');
   const lines=(r&&r.lines)||[];
@@ -838,7 +847,7 @@ async function putCfg(mut){
   mut(c);
   await api("/api/config", { method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify(c) });
 }
-async function saveOwner(b){
+async function saveOwner_legacy(b){
   const v = document.getElementById("sOwner").value.trim();
   if(!/^[0-9]{5,12}$/.test(v)) return toast("主人 QQ 要填数字", false);
   b.disabled = true;
@@ -846,7 +855,7 @@ async function saveOwner(b){
   catch(e){ toast("保存失败：" + e.message, false) }
   finally{ b.disabled = false }
 }
-async function saveBrain(b){
+async function saveBrainPage(b){
   const baseUrl = document.getElementById("sUrl").value.trim();
   const model = document.getElementById("sModel").value.trim();
   const key = document.getElementById("sKey").value.trim();
@@ -1171,8 +1180,13 @@ const server = http.createServer(async (req, res) => {
       } catch {}
       let qr = { exists: false, at: 0 };
       try { const s = fs.statSync(QR_FILE); qr = { exists: true, at: s.mtimeMs }; } catch {}
+      let ncDir = NAPCAT_DIR;
+      try { const s3 = loadSetup(); if (s3.napcat && s3.napcat.dir) ncDir = String(s3.napcat.dir); } catch {}
+      const ncReady = (() => { try { return fs.existsSync(path.join(ncDir, 'launcher.bat')); } catch { return false; } })();
       return send(res, 200, {
         qqEnabled: QQE,
+        napcatDir: ncDir,
+        napcatReady: ncReady,
         bridge: a, login, people, minds,
         names: readJSON(NAMES, {}),
         ownerUin: ownerUin(),
@@ -2910,9 +2924,13 @@ function paintQr(S, l){
     img.style.display = 'none';
     if (slot.dataset.at) { img.removeAttribute('src'); slot.dataset.at = ''; }
     ph.style.display = 'block';
-    ph.textContent = AGE >= 0
-      ? '这张码是 ' + fmtAge(AGE) + '前生成的，早就失效了，扫也没用 —— 点右上「立即换一张」重新出码。'
-      : '内核还没出码。点右上「立即换一张」，或到设置里确认 NapCat 路径和内核守护。';
+    if (AGE >= 0) {
+      ph.textContent = '这张码是 ' + fmtAge(AGE) + '前生成的，早就失效了，扫也没用 —— 点右上「立即换一张」重新出码。';
+    } else if (typeof napcatGuide === 'function' && S && S.napcatReady === false) {
+      ph.innerHTML = napcatGuide(S);
+    } else {
+      ph.textContent = '内核还没出码。点右上「立即换一张」，或到设置里确认 NapCat 路径和内核守护。';
+    }
   }
 }
 
@@ -3350,7 +3368,7 @@ async function loadCfg(){
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">接口地址</span><input id="brUrl" value="' + (br.baseUrl || '') + '" style="flex:1"></div>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">API Key</span><input id="brKey" type="password" placeholder="' + (br.keySet ? '已保存 ' + br.keyMask + '（留空不改）' : 'sk-…') + '" style="flex:1"></div>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">模型</span><input id="brModel" value="' + (br.model || '') + '" style="flex:1"><button class="ghost" data-kind="chat" onclick="pullModels(this.dataset.kind)">拉取</button></div>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim"></span><button class="ghost" onclick="testBrain()">测试连接</button><button class="btn" onclick="saveBrainCfgBox(this)">保存 API</button><span class="dim" id="brMsg"></span></div>'
+    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim"></span><button class="ghost" onclick="testBrain()">测试连接</button><button class="btn" onclick="saveBrainPanel(this)">保存 API</button><span class="dim" id="brMsg"></span></div>'
     + '<p class="dim" style="margin:0 0 6px 210px">改完 API 后要点「重启桥接」才用新配置。</p>'
     + '<h4 class="sect">语音（TTS）</h4>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">供应商</span><select data-p="tts.provider" style="width:240px"><option value="aliyun"' + ((c.tts&&c.tts.provider==='aliyun')?' selected':'') + '>阿里云 CosyVoice</option><option value="openai"' + ((c.tts&&c.tts.provider==='openai')?' selected':'') + '>OpenAI 兼容 /audio/speech</option><option value="edge"' + ((c.tts&&c.tts.provider==='edge')?' selected':'') + '>Edge-TTS（免费兜底）</option></select></div>'
@@ -3550,7 +3568,7 @@ async function saveOwner(){
   const r = await api('/api/setup', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ownerUin: v }) });
   $('#ownMsg').textContent = r.ok ? '已保存' : ('保存失败：' + (r.error || ''));
 }
-async function saveBrain(){
+async function saveBrainPanel(){
   const body = { baseUrl: $('#brUrl').value.trim(), model: $('#brModel').value.trim(), key: $('#brKey').value.trim() };
   const r = await api('/api/brain', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (r.ok) { $('#brMsg').textContent = '已保存。重启桥接后生效。'; $('#brKey').value = ''; }

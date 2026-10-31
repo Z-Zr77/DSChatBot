@@ -40,6 +40,7 @@ const ALL = [
   ['poc-work-r1-r8-test', '工作模式 R1–R8（集成，真起桥接）'],
   ['poc-tools-e2e', '工具轮端到端（假大脑）'],
   ['poc-noqq-test', '全新安装没填主人 QQ 也能聊（0.6.3 回归）'],
+  ['poc-ui-settings-test', '控制台设置：保存密钥生效 / 无重名函数 / NapCat 引导'],
 ];
 
 // 防止两个 runner 同时跑（会抢端口、抢临时目录）
