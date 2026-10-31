@@ -325,6 +325,8 @@
       <button id="drawerClose">收起</button>
     </div>
     <div id="workEdits"><div class="we-empty">这个会话还没改过文件</div></div>
+    <div class="thead"><b>最近的工作区</b><span class="htx">点「继续」接着上次干</span></div>
+    <div id="workRecent"><div class="we-empty">还没有用过的工作区</div></div>
     <div class="thead"><b>她的轨迹</b><span class="htx">刚才在想什么、用了什么工具</span><button id="traceClear">清空</button></div>
     <div id="traceList"></div>
   </div>
@@ -842,6 +844,7 @@ async function paintWorkBar(){
     document.getElementById('drawerBtn').textContent = '本轮 ' + edits.length;
     document.getElementById('drawerSum').textContent = edits.length ? ('这轮改了 ' + edits.length + ' 处') : '还没有改动';
     if (!window.__viewOld) paintEdits(edits);
+    paintRecent((r && r.recent) || [], w.root || '');
     document.getElementById('modeBtn').onclick = (e) => { e.stopPropagation(); menuToggle('modeMenu'); };
     document.getElementById('apprBtn').onclick = (e) => { e.stopPropagation(); menuToggle('apprMenu'); };
     document.querySelectorAll('#modeMenu button[data-mode]').forEach((b) => {

@@ -101,9 +101,12 @@ const ta = async (name, fn) => { try { await fn(); PASS++; console.log('PASS', n
     assert.match(uiSrc, /id="workStopBtn"/);
   });
   t('v2：旧的工作信息侧栏与权限胶囊已移除', () => {
-    assert.doesNotMatch(uiSrc, /id="workRecent"/);
+    // 旧侧栏（workInfo / permBtn / traceBtn）不该再出现；
+    // 「最近的工作区」在 0.6.5 挪进了本轮抽屉，容器 #workRecent 保留是正常的
+    assert.doesNotMatch(uiSrc, /id="workInfo"/);
     assert.doesNotMatch(uiSrc, /id="permBtn"/);
     assert.doesNotMatch(uiSrc, /id="traceBtn"/);
+    assert.match(uiSrc, /id="workRecent"/);
   });
   t('本轮抽屉里同时放改动与轨迹', () => {
     assert.match(uiSrc, /id="workEdits"/);

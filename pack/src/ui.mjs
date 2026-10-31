@@ -662,7 +662,7 @@ async function micTap(){
     micStart();
   }
 }
-async function testNotify(btn){
+async function testNotify_legacy(btn){
   const old = btn.textContent; btn.disabled = true; btn.textContent = '发送中…';
   try {
     await saveCfg(true);
@@ -2523,6 +2523,7 @@ pre{background:#0b0e13;border:1px solid var(--line);border-radius:12px;padding:1
 </section>
 </div>
 </main>
+<script>__WK_SCRIPT__</script>
 <script>
 const $ = (s) => document.querySelector(s);
 const PG = {
@@ -2673,6 +2674,17 @@ async function chatSend(){
 
 const api = async (u, o) => (await fetch(u, o)).json();
 let __dirty = false;
+
+// 「发一条测试推送」：调用主程序的系统通知服务（原来是空按钮）
+async function testNotify(btn){
+  const old = btn && btn.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = '发送中…'; }
+  try {
+    const r = await api('/api/notify/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    toast(r && r.ok ? '已发出，看看右下角' : ('没发出去：' + ((r && r.err) || '未知原因')), !!(r && r.ok));
+  } catch (e) { toast('失败：' + (e.message || e), false); }
+  if (btn) { btn.disabled = false; btn.textContent = old; }
+}
 let __toastTimer = null;function toast(msg, ok = true) {
   const t = document.getElementById('toast');
   if (!t) return;
@@ -3022,6 +3034,11 @@ async function delMem(i){
 }
 // 通用小弹层：Electron 里 window.prompt 不可用，危险操作自己画
 function miniDialog(inner){
+  if (inner === undefined || inner === null || inner === '') {
+    inner = '<div style="font-size:15px;font-weight:600;margin-bottom:8px">这个面板没加载出来</div>'
+      + '<div class="dim" style="margin-bottom:12px">页面脚本不完整（多半是这一版漏了资源）。可以去控制台「设置」看版本号，或者重启一次程序。</div>'
+      + '<div class="row" style="justify-content:flex-end"><button class="btn" onclick="this.closest(\'div[style*=fixed]\').remove()">知道了</button></div>';
+  }
   const d = document.createElement('div');
   d.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center';
   d.innerHTML = '<div style="width:400px;max-width:92vw;background:#151a22;border:1px solid #7a3b3b;border-radius:12px;padding:18px;color:#e6e9ef;font-size:13.5px;line-height:1.6">' + inner + '</div>';

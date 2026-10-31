@@ -41,6 +41,7 @@ const ALL = [
   ['poc-tools-e2e', '工具轮端到端（假大脑）'],
   ['poc-noqq-test', '全新安装没填主人 QQ 也能聊（0.6.3 回归）'],
   ['poc-ui-settings-test', '控制台设置：保存密钥生效 / 无重名函数 / NapCat 引导'],
+  ['poc-ui-smoke-test', '界面体检：注入完整 / 按钮都有函数 / id 都真实存在 / 没有裸 undefined'],
 ];
 
 // 防止两个 runner 同时跑（会抢端口、抢临时目录）
