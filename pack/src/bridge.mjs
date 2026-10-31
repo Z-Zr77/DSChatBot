@@ -3778,7 +3778,7 @@ async function proactiveTick() {
     cands.sort((a, b) => b[1].lastUserAt - a[1].lastUserAt);
     const [uin] = cands[0];
     // 状态不好就不硬撑着找人：困、烦、已经连着被冷落两次、或者已经睡着了。
-    // 睡着还能主动发消息，就会出现"她刚说面煮好了、你回她她不理你"（2026-11-01 真实事故）。
+    // 睡着还能主动发消息：她刚主动说了一句，他回两条，她一条都不理（2026-11-01 真实事故）。
     const mst = mind.load(uin);
     if (!force && (mst.energy < 20 || mst.mood < 28 || (mst.unansweredProactive || 0) >= 2
       || Number(mst.asleepUntil) > now)) {
