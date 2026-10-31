@@ -1,5 +1,5 @@
 // 重建发布包：默认 ~/DSChatBot-发布包（可用 QQBOT_RELEASE_DIR 覆盖）
-// 用法（在仓库根执行）：node pack/_tools/mkrelease.cjs
+// 用法（在仓库根执行）：node pack/tools/mkrelease.cjs
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');

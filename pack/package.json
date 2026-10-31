@@ -1,8 +1,8 @@
 {
   "name": "dschatbot",
-  "version": "0.6.15",
+  "version": "0.7.0",
   "private": true,
-  "description": "DSChatBot — 本地运行的 AI 聊天助手（自带设置向导）",
+  "description": "DSChatBot — 住在你电脑里的数字人：有作息、有记忆、会主动找你说话（Windows / 本地数据 / 自带设置向导）",
   "main": "electron/main.cjs",
   "scripts": {
     "start": "node launch.mjs",
@@ -77,5 +77,23 @@
     "silk-wasm": "^3.7.1",
     "ws": "^8.22.0"
   },
-  "productName": "DSChatBot"
+  "productName": "DSChatBot",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Z-Zr77/DSChatBot.git"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "chatbot",
+    "digital-human",
+    "qq",
+    "onebot",
+    "napcat",
+    "electron",
+    "llm",
+    "companion"
+  ]
 }

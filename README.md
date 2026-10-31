@@ -21,6 +21,25 @@ Windows · 本地数据 · 你自己的模型 Key · [MIT](LICENSE)
 
 ---
 
+## 技术概览
+
+| | |
+|---|---|
+| 规模 | 运行时约 15.9k 行（Node ESM，**无构建步骤**）、29 个测试套件 |
+| 进程 | Electron 主进程 + 控制台（3070）+ 桥接（3098）+ 聊天窗（3210）；接 QQ 走 OneBot v11（NapCat） |
+| 存储 | 纯文件（JSON + JSONL），无数据库；升级 / 卸载都不动 `data/` |
+| 模型 | 任意 OpenAI 兼容接口；画图/视觉、TTS 各接各的服务商，可以混用 |
+| 长跑 | 日志轮转、热更新、月度预算四级熔断、断线重连与自恢复 |
+
+**工程上真正要解决的问题**（细节见 [架构](docs/architecture.md)）：
+
+- **多入口、同一份状态**：QQ 里聊的、浏览器窗口里聊的，是同一个记忆、同一个她——不是两个机器人共用一个名字。
+- **她有自己的节奏**：回复延迟按分布抖动（2 秒 ~ 2 小时），允许"这次不回"；睡着会沉默，连敲几次才叫醒，被叫醒后再说"去睡"不会又排一整夜。
+- **成本是一等公民**：每次模型调用按 `kind`/`channel` 记账，四级熔断（少说话 → 停主动 → 只被动 → 停），画图单独配额——因为一张图可能比几十轮对话还贵。
+- **零构建 + 热更新**：源码即产物的 JS，改完拷进安装目录 `POST /api/restart` 生效；发布走 `pack/tools/release.cjs` 一键完成版本号 → 打包 → 发布包 → SHA256。
+
+---
+
 ## 五分钟装上
 
 1. 到 [Releases](../../releases) 下载 `DSChatBot-Setup-x.y.z.exe`，双击安装（默认 `E:\DSChatBot`，可改）。
@@ -95,17 +114,18 @@ Windows · 本地数据 · 你自己的模型 Key · [MIT](LICENSE)
 git clone https://github.com/Z-Zr77/DSChatBot.git
 cd DSChatBot/pack
 npm install
-npm test          # 26 个测试套件
+npm test          # 29 个测试套件
 node launch.mjs   # 开发模式：控制台 + 桥接 + 聊天窗
 ```
 
-打包：`npx electron-builder --win nsis`。需要 Node 22+ / Windows 10 11。
+打包：双击 `pack/build-exe.bat`，或 `npx electron-builder --win nsis`。需要 Node 22+ / Windows 10 / 11。
 
 ---
 
 ## 文档
 
 - [五分钟上手](docs/quickstart.md)
+- [架构与模块划分](docs/architecture.md)
 - [配置模型与 QQ](docs/configure.md)
 - [记忆是怎么工作的](docs/memory.md)
 - [允许她动电脑（可选）](docs/work-mode.md)

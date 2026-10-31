@@ -2,9 +2,9 @@
 // 一条命令发版：test → 升版本 → 打包 → 重建发布包 → commit/tag/push → （有 gh 时）建 Release
 //
 // 用法：
-//   node pack/_tools/release.cjs patch          # 0.5.1 -> 0.5.2
-//   node pack/_tools/release.cjs minor --dry    # 只看会做什么，不动手
-//   node pack/_tools/release.cjs patch --no-push
+//   node pack/tools/release.cjs patch          # 0.5.1 -> 0.5.2
+//   node pack/tools/release.cjs minor --dry    # 只看会做什么，不动手
+//   node pack/tools/release.cjs patch --no-push
 //
 // 约定：
 //   - 仓库根 = 本文件的 ../../（即 qq-bot）
@@ -71,7 +71,7 @@ if (!dry && !fs.existsSync(path.join(PACK, exeRel))) die('没找到安装包：'
 
 // ---------- 4. 重建发布包 ----------
 log('重建发布包：' + RELEASE_DIR);
-if (!noPush || true) run('node', [path.join('pack', '_tools', 'mkrelease.cjs')], { allowFail: true });
+if (!noPush || true) run('node', [path.join('pack', 'tools', 'mkrelease.cjs')], { allowFail: true });
 
 // ---------- 5. 提交 + 打 tag ----------
 const msg = `v${next}`;
