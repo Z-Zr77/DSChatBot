@@ -1,4 +1,4 @@
-// 重建发布包：E:\DSChatBot-发布包
+// 重建发布包：默认 ~/DSChatBot-发布包（可用 QQBOT_RELEASE_DIR 覆盖）
 // 用法（在仓库根执行）：node pack/_tools/mkrelease.cjs
 const fs = require('fs');
 const path = require('path');
@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
 const REPO = path.resolve(__dirname, '..', '..');
-const OUT = process.env.QQBOT_RELEASE_DIR || String.raw`E:\DSChatBot-发布包`;
+const OUT = process.env.QQBOT_RELEASE_DIR || path.join(require('os').homedir(), 'DSChatBot-发布包');
 const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'pack', 'package.json'), 'utf8'));
 const VER = 'v' + pkg.version;
 

@@ -5,8 +5,8 @@ const path = require('path');
 
 const REPO = 'Z-Zr77/DSChatBot';
 const TAG = process.argv[2] || 'v0.6.5';
-const BODY_FILE = process.argv[3] || 'E:/DSChatBot-发布包/03-发布说明/v0.6.5.md';
-const ASSET = process.argv[4] || 'E:/DeepSeek_AI/qq-bot/pack/dist/DSChatBot-Setup-0.6.5.exe';
+const BODY_FILE = process.argv[3] || '';
+const ASSET = process.argv[4] || path.resolve(__dirname, '..', 'dist');
 
 function token() {
   const out = execFileSync('git', ['credential', 'fill'], { input: 'protocol=https\nhost=github.com\n\n', encoding: 'utf8' });

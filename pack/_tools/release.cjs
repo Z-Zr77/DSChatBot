@@ -9,16 +9,15 @@
 // 约定：
 //   - 仓库根 = 本文件的 ../../（即 qq-bot）
 //   - 版本号只有一处真源：pack/package.json
-//   - 发布包目录：E:\DSChatBot-发布包（可用 QQBOT_RELEASE_DIR 覆盖）
-import { spawnSync } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+//   - 发布包目录：默认 ~/DSChatBot-发布包（可用 QQBOT_RELEASE_DIR 覆盖）
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
+const HERE = __dirname;
 const REPO = path.resolve(HERE, '..', '..');
 const PACK = path.join(REPO, 'pack');
-const RELEASE_DIR = process.env.QQBOT_RELEASE_DIR || 'E:\\DSChatBot-发布包';
+const RELEASE_DIR = process.env.QQBOT_RELEASE_DIR || path.join(require('node:os').homedir(), 'DSChatBot-发布包');
 
 const argv = process.argv.slice(2);
 const level = (argv.find((a) => /^(patch|minor|major)$/.test(a)) || 'patch');

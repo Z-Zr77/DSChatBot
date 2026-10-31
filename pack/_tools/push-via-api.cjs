@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const REPO = 'Z-Zr77/DSChatBot';
-const ROOT = 'E:/DeepSeek_AI/qq-bot';
+const ROOT = path.resolve(__dirname, '..', '..');
 const BASE = process.argv[2] || 'v0.6.4';
 const TAG = process.argv[3] || 'v0.6.5';
 
