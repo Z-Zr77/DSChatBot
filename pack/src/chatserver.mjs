@@ -24,14 +24,14 @@ async function checkUpdate() {
       headers: { 'user-agent': 'DSChatBot-update-check', accept: 'application/vnd.github+json' },
       signal: AbortSignal.timeout(6000),
     });
-    if (!r.ok) { UPD.err = 'HTTP ' + r.status; UPD.at = Date.now(); return UPD; }
+    if (!r.ok) { UPD.err = 'HTTP ' + r.status; UPD.at = Date.now() - 3300 * 1000; return UPD; }
     const j = await r.json();
     const latest = String(j.tag_name || j.name || '').trim();
     UPD.latest = latest;
     UPD.url = String(j.html_url || ('https://github.com/' + GH_SLUG + '/releases'));
     UPD.newer = !!latest && verCmp(latest, SELF.version) > 0;
     UPD.err = ''; UPD.at = Date.now();
-  } catch (e) { UPD.err = String(e && e.message || e); UPD.at = Date.now(); }
+  } catch (e) { UPD.err = String(e && e.message || e); UPD.at = Date.now() - 3300 * 1000; }
   return UPD;
 }
 // 只在 %APPDATA%\DSChat 放一个指针文件（where.json），其余全部落在数据目录里：
