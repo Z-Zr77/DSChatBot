@@ -78,6 +78,11 @@ t('桥接：说完这句就真的睡（goSleep 在发送之后调用）', () => 
   assert.ok(/if \(ex\.sleepHours\) \{/.test(bridgeSrc), '没有处理 sleepHours');
   assert.ok(/let hrs = ex\.sleepHours;/.test(bridgeSrc), '没从 sleepHours 取小时数');
   assert.ok(/mind\.goSleep\(mk, hrs\)/.test(bridgeSrc), '没有写睡眠状态');
+  // 顺序：mstate 是回复开始时读的旧状态，先 goSleep 再 save 会把她刚睡下又拉起来
+  const iSave = bridgeSrc.indexOf('mind.save(mk, mstate);');
+  const iSleep = bridgeSrc.indexOf('mind.goSleep(mk, hrs);');
+  assert.ok(iSave > 0 && iSleep > 0, '找不到 save/goSleep');
+  assert.ok(iSave < iSleep, 'goSleep 必须在 save(mstate) 之后，否则睡眠会被旧状态覆盖');
 });
 
 t('刚被叫醒又说"我去睡了"，算同一觉，不再排满 7 小时', () => {

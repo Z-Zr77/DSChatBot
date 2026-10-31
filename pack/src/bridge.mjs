@@ -3574,6 +3574,10 @@ async function replyNowInner(conv, body, extras = {}) {
   for (const s of (ex.selfies || [])) await sendSelfie(conv, s);
   for (const sc of (ex.scenes || [])) await sendScene(conv, sc);
   if (conv.kind === 'group') gfAfterSpeak(conv.id);   // 说过话就把续聊窗口续上
+  mind.bump(mstate, { type: extras.proactive ? 'proactive' : 'my_reply' });
+  mind.save(mk, mstate);
+  // 顺序不能反：mstate 是这轮开始时就读出来的，里面 asleepUntil 还是旧值。
+  // 先 goSleep 再 save(mstate) 等于把她刚盖上的被子又掀了——前几版"说了去睡却一直没睡"就是这么来的。
   if (ex.sleepHours) {
     // 刚被叫醒又说"我去睡了"——那是同一觉没睡完，不是新的一觉：别再给她排 7 小时。
     let hrs = ex.sleepHours;
@@ -3585,8 +3589,6 @@ async function replyNowInner(conv, body, extras = {}) {
     const r = mind.goSleep(mk, hrs);
     log('[sleep] 她说去睡了' + (again ? '（刚被叫醒，算同一觉，只睡 ' + r.hrs + ' 小时）' : ''), mk, r.hrs + ' 小时，约 ' + new Date(r.until).toTimeString().slice(0, 5) + ' 醒');
   }
-  mind.bump(mstate, { type: extras.proactive ? 'proactive' : 'my_reply' });
-  mind.save(mk, mstate);
   return out;
 }
 
