@@ -8,6 +8,10 @@ Windows · 本地数据 · 你自己的模型 Key · [MIT](LICENSE)
 [![tests](https://github.com/Z-Zr77/DSChatBot/actions/workflows/test.yml/badge.svg)](https://github.com/Z-Zr77/DSChatBot/actions/workflows/test.yml)
 [![release](https://img.shields.io/github/v/release/Z-Zr77/DSChatBot?color=3b82f6)](https://github.com/Z-Zr77/DSChatBot/releases)
 
+<img src="docs/images/chat.png" alt="聊天窗：她记得上一句、会接着聊、也会说到自己撑不住" width="720">
+
+*真实的聊天窗口。她记得你刚才说过的话（"我说过了，你得记着"），会给你出主意，也会真的说到困了去睡。*
+
 ---
 
 ## 她是什么
