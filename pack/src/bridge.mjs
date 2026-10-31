@@ -810,6 +810,14 @@ async function writeJournal(force = false) {
   } finally { journalling = false; }
 }
 
+// 她在哪儿跟他说话——窗口里他就在电脑前，QQ 上他多半拿着手机。语气该不一样。
+function channelLine(conv) {
+  if (conv && conv.kind === 'local') {
+    return '【你现在在哪】他正开着电脑上的聊天窗口跟你说话，人就在电脑前看着，你打一句他马上看见。回得快、话短，别摆出"要等很久才看到"的样子。';
+  }
+  return '【你现在在哪】你俩是在 QQ 上聊，他大概拿着手机，不一定盯着屏幕——不着急，想到再说。';
+}
+
 function timeContext(uin, opts = {}) {
   const withLife = opts.withLife !== false;
   const now = new Date();
@@ -1834,9 +1842,22 @@ async function sendScene(conv, spec) {
   }
 }
 
+// 括号里的表演提示不是噪音，是她的语气。原来整条删掉，念出来就只剩平铺直叙的念稿。
+function speechFrom(text) {
+  let s = String(text || '');
+  s = s.replace(/[（(]\s*(?:笑|笑了|轻笑|哈哈|苦笑|笑着说|笑笑)[^）)]*[）)]/g, '，哈哈');
+  s = s.replace(/[（(]\s*(?:叹气|叹口气|叹气着|叹|无奈|无语)[^）)]*[）)]/g, '，唉');
+  s = s.replace(/[（(]\s*(?:小声|低声|嘀咕|嘟囔|念叨)[^）)]*[）)]/g, '，');
+  s = s.replace(/[（(]\s*(?:停顿|沉默|想了想|顿了顿|犹豫)[^）)]*[）)]/g, '……');
+  s = s.replace(/[（(][^）)]*[）)]/g, '……');     // 其它提示：留一个停顿，别把话吞掉
+  s = s.replace(/\[\[[^\]]*\]\]/g, ' ');          // MEMO/FACE/VOICE 这些标记不能念出来
+  return s.replace(/[ \t]+/g, ' ').replace(/，{2,}/g, '，').replace(/。{2,}/g, '。').replace(/…{3,}/g, '……').replace(/^[，。…\s]+/, '').trim();
+}
+
 async function sendVoice(conv, text) {
   try {
-    const clean = String(text).replace(/[（(][^）)]*[）)]/g, '').trim();
+    const clean = speechFrom(text);
+    if (!clean) { await sendMsg(conv, text); return; }
     const { silk, durationMs } = await textToSilk(clean);
     budget.add('tts', budget.ttsCost(clean.length));
     if (durationMs > 58000) { log('[voice] too long', Math.round(durationMs)); await sendMsg(conv, text); return; }
@@ -3129,6 +3150,7 @@ async function replyNowInner(conv, body, extras = {}) {
   const content = extras.proactive
     ? [
         timeContext(conv.id),
+        channelLine(conv),
         '',
         mind.facts(mstate, (() => {
     const h = lifeHere();
@@ -3179,6 +3201,7 @@ async function replyNowInner(conv, body, extras = {}) {
     : [
         (timeConflictHint(body) ? '【硬性要求·优先于其它一切】' + timeConflictHint(body).replace(/^【注意】/, '') : ''),
         timeContext(conv.id, { withLife: askedAboutHer(body) || Math.random() < 0.5 }),
+        channelLine(conv),
         '',
         mind.facts(mstate, (() => {
     const h = lifeHere();
@@ -3237,6 +3260,7 @@ async function replyNowInner(conv, body, extras = {}) {
         '这轮他说了值得长期记住的事（名字、称呼、喜好、雷区、约定），就在最后单独一行加 `[[MEMO: …]]`；特别不能忘的用 `[[MEMO!: …]]`。没有就不加。',
         '【记错要改】如果你记的旧情况和他刚说的对不上（换城市、换工作、毕业了不再是学生、分手、改名字、戒烟了），就先删旧的：最后单独一行写 `[[FORGET: 旧记忆里的关键词]]`，再用 `[[MEMO: …]]` 记新的。要删的是核心记忆（主人/生日这类）就用 `[[FORGET!: 关键词]]`。同一件事只留最新一条，别新旧并存。',
         '【允许记岔】人是会记错的：把日子记混、把他昨天说的记成今天，都正常——记岔了就顺着说，别当场自查，别一副"我刚才是不是说错了"的样子。被他指出来就笑一下认了（"啊对，是明天""我记混了"），一句话带过，接着聊。宁可偶尔记错，也别为了不出错回回都说"记不清"——那是机器在保守。',
+        '【会追问】三种时候追一句（"然后呢""你咋想的""那你咋办的"）：他说一半就停、他在犹豫要不要做某件事、他刚经历完一件事还没说感受。他只是在报备一句"吃了""睡了""到家了"，就别追了，接住就行。追问是顺着往下走，不是查户口。',
         lv >= 3 ? '（预算紧了，这轮一句话就够，别展开。）' : '',
         keepPrompt(extras.staged),
         photoRule(conv),
