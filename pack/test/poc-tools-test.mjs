@@ -19,6 +19,24 @@ const RC = { writeRoot: REPO, roots: [ REPO ], base: REPO, deny: [], wsId: 'poc-
 const lines = [];
 function rec(s = '') { lines.push(s); }
 
+// notes/ 在 .gitignore 里（开发者的私人笔记），干净克隆和 CI 上不存在。
+// 测试不能依赖"本机恰好有那个文件"：缺了就建最小 fixture，语义不变。
+const NOTES_FIX = [
+  ['整理汇报-20261029.md', '# 整理汇报（测试 fixture）\n\n' + '这一行用来让文件长度超过 100 个字符，保证 read_file 的判据有意义。'.repeat(3) + '\n'],
+  ['整理后复查-20261029.md', '# 整理后复查（测试 fixture）\n\n' + '相对路径读取的判据只看能否读到，内容不重要。'.repeat(2) + '\n'],
+];
+function ensureNotesFixture() {
+  try {
+    fs.mkdirSync(NOTES, { recursive: true });
+    for (const [name, body] of NOTES_FIX) {
+      const p = path.join(NOTES, name);
+      if (!fs.existsSync(p)) fs.writeFileSync(p, body, 'utf8');
+    }
+  } catch (e) {
+    rec('（fixture 建不出来：' + e.message + '）');
+  }
+}
+
 function setApprove(v) {
   if (v === undefined) delete process.env.QQBOT_APPROVE;
   else process.env.QQBOT_APPROVE = v;
@@ -148,6 +166,7 @@ const cases = [
 ];
 
 async function main() {
+  ensureNotesFixture();
   rec('工具层 方案 A 测例');
   rec('时间：' + new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }));
   rec('Node：' + process.version + '  CWD：' + process.cwd());
