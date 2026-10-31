@@ -75,6 +75,9 @@ try {
   check('控制台起来了', ui.ok, ui.log.slice(-300));
   if (ui.ok) {
     const html = await (await fetch(`http://127.0.0.1:${UI_PORT}/`)).text();
+  const uiHtml = html;
+  check('允许她动电脑：状态页与设置页各有一个按钮，共用 paintWorkTools', uiHtml.includes('id="workToolsBtn"') && uiHtml.includes('id="sToolsBtn"') && uiHtml.includes("['#workToolsBtn', '#workToolsState'], ['#sToolsBtn', '#sToolsState']"), '缺少双入口按钮或共享绘制');
+  
     audit('控制台', html);
     check('控制台：工作模式弹窗内容不为空', /window\.__WK_INNER\s*=\s*"??[^;"']/.test(html) || /window\.__WK_INNER\s*=\s*"\\u003c/.test(html), '');
   }

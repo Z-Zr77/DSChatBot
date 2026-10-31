@@ -159,6 +159,30 @@ function startNotifyServer() {
       }
       res.writeHead(405); res.end('no'); return;
     }
+    // 原生「选文件夹」：控制台/聊天窗点「浏览…」时由主进程弹 Windows 对话框
+    if (u === '/pick-dir') {
+      const jout2 = (o) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
+      if (req.method !== 'POST') { res.writeHead(405); res.end('no'); return; }
+      let b2 = '';
+      req.on('data', (c) => { b2 += c; if (b2.length > 4096) req.destroy(); });
+      req.on('end', async () => {
+        try {
+          const { dialog } = require('electron');
+          let start = '';
+          try { const j = JSON.parse(b2 || '{}'); start = String(j.from || ''); } catch {}
+          const win = BrowserWindow.getAllWindows()[0];
+          const r = await dialog.showOpenDialog(win && !win.isDestroyed() ? win : null, {
+            title: '选一个文件夹当她的工作区',
+            properties: ['openDirectory', 'createDirectory'],
+            defaultPath: start && fs.existsSync(start) ? start : (process.env.USERPROFILE || undefined),
+            buttonLabel: '就用这个文件夹',
+          });
+          if (r.canceled || !r.filePaths || !r.filePaths.length) return jout2({ ok: false, canceled: true });
+          jout2({ ok: true, path: r.filePaths[0] });
+        } catch (e) { jout2({ ok: false, err: String(e && e.message || e) }); }
+      });
+      return;
+    }
     if (req.method !== 'POST' || !u.startsWith('/notify')) { res.writeHead(404); res.end('no'); return; }
     let body = '';
     req.on('data', (c) => { body += c; if (body.length > 8192) req.destroy(); });

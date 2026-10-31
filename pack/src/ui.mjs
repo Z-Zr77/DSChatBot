@@ -443,6 +443,12 @@ pre{background:#0c0e12;border:1px solid #232a35;border-radius:12px;padding:12px;
       <div class="row" style="margin-top:10px"><button class="pri" onclick="saveAuto(this)">保存</button></div>
     </div>
     <div class="card">
+      <h2>允许她动电脑</h2>
+      <div class="dim" style="margin-bottom:8px">默认关着：她只能聊天。打开后她才可以在你选的文件夹里读/改文件、跑命令；动手前会先问你。</div>
+      <div class="row" style="gap:8px"><button class="pri" id="sToolsBtn" onclick="toggleWorkTools()">允许她动电脑</button><span class="dim" id="sToolsState">关着</span></div>
+      <div class="dim" id="sToolsHint" style="margin-top:6px;font-size:12px"></div>
+    </div>
+    <div class="card">
       <h2>群聊</h2>
       <div class="kv"><span>在群里说话</span><b><input type="checkbox" id="sGEnabled" style="width:auto;transform:scale(1.3)"></b></div>
       <div class="kv"><span>只叫名字才理</span><b><input type="checkbox" id="sGNeedCall" style="width:auto;transform:scale(1.3)"></b></div>
@@ -1386,7 +1392,7 @@ const server = http.createServer(async (req, res) => {
       try { const r = await fetch(LOCAL_URL() + '/work/suggest?topic=' + encodeURIComponent(q)); return send(res, 200, await r.json()); }
       catch (e) { return send(res, 200, { ok: false, err: String(e.message || e) }); }
     }
-    if ((p === '/api/work/start' || p === '/api/work/stop' || p === '/api/work/touch' || p === '/api/work/mode' || p === '/api/work/tools' || p === '/api/work/restore' || p === '/api/work/undo') && req.method === 'POST') {
+    if ((p === '/api/work/start' || p === '/api/work/stop' || p === '/api/work/touch' || p === '/api/work/mode' || p === '/api/work/tools' || p === '/api/work/pick-dir' || p === '/api/work/restore' || p === '/api/work/undo') && req.method === 'POST') {
       const b = await body(req);
       const to = LOCAL_URL() + p.replace('/api', '');
       try { const r = await fetch(to, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b || {}) }); return send(res, r.status, await r.json()); }
@@ -2811,8 +2817,9 @@ async function loadState(){
     + '<span id="workBadge" class="pill">未开启</span></div>'
     + '<div class="dim" id="workInfo" style="margin-top:6px">日常聊天她只能看、不能改。要她动手改文件，点下面按钮，先选一个工作目录。</div>'
     + '<div id="workEdits" style="margin-top:10px"></div>'
-    + '<label class="row" style="margin-top:10px;gap:8px;cursor:pointer"><input type="checkbox" id="workTools" onchange="setWorkTools(this.checked)"> <span>允许她动电脑</span></label>'
+    + '<div class="row" style="margin-top:10px;gap:8px"><button class="ghost btn" id="workToolsBtn" onclick="toggleWorkTools()">允许她动电脑</button><span class="dim" id="workToolsState">关着</span></div>'
     + '<div class="dim" style="margin-top:4px;font-size:12px">关着的时候她只能聊天（默认）。打开后她才能在你选的文件夹里读/改文件、跑命令，动手前会问你。</div>'
+    + '<div class="dim" id="workToolsHint" style="margin-top:2px;font-size:12px"></div>'
     + '<div class="row" style="margin-top:10px;gap:8px"><button class="btn" onclick="openWorkDialog()">进入工作模式</button>'
     + '<button class="ghost btn" id="workStop" onclick="stopWork()" style="display:none">停止工作会话</button></div></div>'
     + '<div class="card"><div class="row" style="justify-content:space-between"><b>备份</b>'
@@ -3046,12 +3053,40 @@ function miniDialog(inner){
   return d;
 }
 const dlgInput = 'width:100%;box-sizing:border-box;margin:5px 0 10px;padding:9px;border-radius:8px;border:1px solid #2b313d;background:#0f1217;color:#e6e9ef;font-size:14px';
-// 允许她动电脑的总开关
+// 允许她动电脑的总开关（按钮式：勾选框在 8 秒轮询重建时容易丢状态）
+let __toolsOn = false;
+function paintWorkTools(on) {
+  __toolsOn = !!on;
+  const pairs = [['#workToolsBtn', '#workToolsState'], ['#sToolsBtn', '#sToolsState']];
+  for (const [bid, sid] of pairs) {
+    const b = $(bid), st = $(sid);
+    if (b) b.textContent = on ? '已允许（点我关掉）' : '允许她动电脑';
+    if (st) { st.style.color = on ? '#7ad48a' : ''; st.textContent = on ? '开着的' : '关着'; }
+  }
+}
+async function toggleWorkTools() {
+  return setWorkTools(!__toolsOn);
+}
 async function setWorkTools(on) {
-  const r = await api('/api/work/tools', { method: 'POST', body: { enabled: !!on } });
-  if (r && r.ok) toast(on ? '已允许她动电脑' : '已关掉：她现在只能聊天');
-  else toast('没保存成功：' + ((r && r.err) || '未知原因'));
-  render();
+  const boxes = ['#workToolsHint', '#sToolsHint'].map(function(k){return $(k);}).filter(Boolean);
+  const box = boxes[0] || null;
+  const setHint = function(txt, bad){ boxes.forEach(function(b){ b.style.color = bad ? '#f0666e' : ''; b.textContent = txt; }); };
+  try {
+    const r = await api('/api/work/tools', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: !!on }) });
+    if (r && r.ok && r.stillOn === !!on) {
+      paintWorkTools(!!on);
+      setHint((on ? '已允许' : '已关掉：她现在只能聊天') + '（存在 ' + (r.file || '配置文件') + '）', false);
+      toast(on ? '已允许她动电脑' : '已关掉：她现在只能聊天');
+    } else {
+      paintWorkTools(!on);
+      const why = (r && (r.err || ('保存后读回来是 ' + (r && r.stillOn)))) || '未知原因';
+      setHint('没存上：' + why, true);
+      toast('没保存成功：' + why, false);
+    }
+  } catch (e) {
+    setHint('没存上：' + (e.message || e), true);
+    toast('没保存成功：' + (e.message || e), false);
+  }
 }
 
 // ---- 工作模式（首期只有文件能力：读 / 改 / 预览 / 恢复 / 停止） ----
@@ -3062,8 +3097,7 @@ async function loadWork(){
     WORK = (r && r.work) || { active: false };
     const badge = $('#workBadge'), info = $('#workInfo'), stop = $('#workStop');
     if (!badge) return;
-    const cb = $('#workTools');
-    if (cb) cb.checked = !!(r && r.toolsEnabled === true);
+    paintWorkTools(!!(r && r.toolsEnabled === true));
     if (WORK.active) {
       const mins = Math.max(0, Math.round((WORK.leftMs || 0) / 60000));
       badge.textContent = '进行中';
@@ -3376,6 +3410,10 @@ async function loadCfg(){
   const cb = (label, path, on, hint = '') => '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">' + label + '</span><label class="dim"><input type="checkbox" data-cb="' + path + '"' + (on ? ' checked' : '') + ' style="width:auto"> ' + (hint || '开启') + '</label></div>';
   $('#cfgBox').innerHTML = '<div class="row" style="justify-content:space-between"><b>设置</b><span><span class="dim" id="cfgMsg" style="margin-right:10px"></span><button class="ghost" onclick="restartBridgeClick()">重启桥接</button><button class="btn" onclick="saveCfg()">保存</button></span></div>'
     + '<p class="dim">改完点保存就生效，不用退出程序。只有换模型供应商这类情况才需要点「重启桥接」。</p>'
+    + '<h4 class="sect">允许她动电脑</h4>'
+    + '<p class="dim" style="margin:0 0 6px 0">默认关着：她只能聊天。打开后她才可以在你选的文件夹里读/改文件、跑命令；动手前会先问你。</p>'
+    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">现在</span><button class="pri" id="sToolsBtn" onclick="toggleWorkTools()">允许她动电脑</button><span class="dim" id="sToolsState" style="margin-left:8px">关着</span></div>'
+    + '<div class="dim" id="sToolsHint" style="margin:0 0 6px 210px;font-size:12px"></div>'
     + '<h4 class="sect">账号</h4>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">机器人 QQ（小号）</span><input value="' + (su.uin || '') + '" readonly style="width:200px"><span class="dim">扫码登录后自动识别</span></div>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">主人 QQ</span><input id="ownerUin" value="' + (su.ownerUin || '') + '" placeholder="你自己的 QQ 号" style="width:200px"><button class="ghost" onclick="saveOwner()">保存主人</button><span class="dim" id="ownMsg"></span></div>'

@@ -4201,13 +4201,39 @@ function startLocalChannel() {
       log('[work] start', r.ok ? r.state.id : r.err, root, exists ? '(已有文件夹)' : '(新建文件夹)');
       return __json(res, r.ok ? 200 : 400, r);
     }
+    // 弹原生选文件夹框：转给主程序（Electron）的本地服务
+    if (p === '/work/pick-dir' && req.method === 'POST') {
+      const b = await __readBody(req);
+      const from = String((b && b.from) || '').trim();
+      try {
+        const pf = path.join(PATHS.data, 'notify.port');
+        const port = fs.readFileSync(pf, 'utf8').trim();
+        const out = await new Promise((resolve) => {
+          const payload = JSON.stringify({ from });
+          const rq = http.request({
+            host: '127.0.0.1', port: Number(port), path: '/pick-dir', method: 'POST',
+            headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) },
+            timeout: 120000,
+          }, (rs) => { let d = ''; rs.on('data', (c) => { d += c; }); rs.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve({ ok: false, err: '主程序回的不是 JSON' }); } }); });
+          rq.on('timeout', () => { rq.destroy(); resolve({ ok: false, err: '对话框等太久了' }); });
+          rq.on('error', (e) => resolve({ ok: false, err: String(e.message || e) }));
+          rq.write(payload); rq.end();
+        });
+        return __json(res, 200, out);
+      } catch (e) {
+        return __json(res, 200, { ok: false, err: '主程序没在跑（找不到 notify.port）：' + (e.message || e) });
+      }
+    }
+
     if (p === '/work/tools' && req.method === 'POST') {
       const b = await __readBody(req);
       const on = b.enabled === true;
-      try { settings.patch({ work: { toolsEnabled: on } }); } catch (e) { return __json(res, 500, { ok: false, err: '存不进配置：' + e.message }); }
+      try { settings.patch({ work: { toolsEnabled: on } }); } catch (e) { return __json(res, 500, { ok: false, err: '存不进配置（' + PATHS.config + '）：' + e.message }); }
       if (!on) { try { const a = grants.active(workKey(__localConv())); if (a) { grants.stop(workKey(__localConv())); log('[work] tools off → 停掉会话', a.id); } } catch {} }
       log('[work] tools', on ? 'on' : 'off');
-      return __json(res, 200, { ok: true, enabled: on });
+      let now = false;
+      try { now = settings.load().work.toolsEnabled === true; } catch {}
+      return __json(res, 200, { ok: true, enabled: on, stillOn: now, file: PATHS.config });
     }
 
     if (p === '/work/mode' && req.method === 'POST') {
