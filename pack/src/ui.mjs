@@ -1383,7 +1383,11 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, await r.json());
       } catch (e) { return send(res, 200, { ok: false, err: String(e.message || e) }); }
     }
-    if (p === '/api/work' && req.method === 'GET') {
+    if (p === '/api/work/dirs' && req.method === 'GET') {
+    try { const r = await fetch(LOCAL_URL() + '/work/dirs' + (url.search || '')); return send(res, 200, await r.json()); }
+    catch (e) { return send(res, 200, { ok: false, err: String(e.message || e) }); }
+  }
+  if (p === '/api/work' && req.method === 'GET') {
       try { const r = await fetch(LOCAL_URL() + '/work'); return send(res, 200, await r.json()); }
       catch (e) { return send(res, 200, { ok: false, err: String(e.message || e) }); }
     }

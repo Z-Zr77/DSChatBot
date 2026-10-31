@@ -276,6 +276,10 @@ export function startServer(port = 3210) {
       return send(res, 200, r);
     } catch (e) { return send(res, 502, JSON.stringify({ ok: false, err: String(e.message || e) })); }
   }
+  if (p === '/api/work/dirs' && req.method === 'GET') {
+    try { return send(res, 200, await up(cfg, '/work/dirs' + (url.search || ''))); }
+    catch (e) { return send(res, 200, { ok: false, err: String(e.message || e) }); }
+  }
   if (p === '/api/work' && req.method === 'GET') {
           try { return send(res, 200, await up(cfg, '/work')); }
           catch (e) { return send(res, 200, { ok: false, err: String(e.message || e) }); }

@@ -4225,6 +4225,28 @@ function startLocalChannel() {
       }
     }
 
+    if (p === '/work/dirs' && req.method === 'GET') {
+      try {
+        const u = new URL(req.url, 'http://127.0.0.1');
+        const home = process.env.USERPROFILE || 'C:\\';
+        let want = String(u.searchParams.get('path') || '').trim() || home;
+        try { want = path.resolve(want); } catch {}
+        if (!fs.existsSync(want) || !fs.statSync(want).isDirectory()) want = path.resolve(home);
+        const deny = workDeny();
+        const dirs = [];
+        for (const d of fs.readdirSync(want, { withFileTypes: true })) {
+          if (!d.isDirectory()) continue;
+          const full = path.join(want, d.name);
+          if (d.name === '.trash' || d.name === 'node_modules') continue;
+          if (deny.some((x) => full.toLowerCase().startsWith(String(x).toLowerCase()))) continue;
+          dirs.push({ name: d.name, path: full });
+        }
+        dirs.sort((a, b) => a.name.localeCompare(b.name, 'zh'));
+        const parent = path.dirname(want);
+        return __json(res, 200, { ok: true, path: want, home, parent: parent === want ? '' : parent, dirs: dirs.slice(0, 300) });
+      } catch (e) { return __json(res, 200, { ok: false, err: '读不了这个目录：' + (e.message || e) }); }
+    }
+
     if (p === '/work/tools' && req.method === 'POST') {
       const b = await __readBody(req);
       const on = b.enabled === true;

@@ -42,8 +42,15 @@ function token() {
   const msg = git('log', '-1', '--pretty=%B', headSha).trim();
 
   // 本次要改动的文件
-  const out = git('diff', '--name-status', baseSha, headSha);
-  const rows = out.split('\n').filter(Boolean).map((l) => l.split('\t'));
+  let rows;
+  try {
+    const out = git('diff', '--name-status', baseSha, headSha);
+    rows = out.split('\n').filter(Boolean).map((l) => l.split('\t'));
+  } catch (e) {
+    // 远端 commit 是 API 建的，本地没有这个对象 → 退化成「全量同步 tracked 文件」
+    console.log('base 不在本地，改为全量同步 tracked 文件');
+    rows = git('ls-files').split('\n').filter(Boolean).map((f) => ['M', f]);
+  }
   const tree = [];
   for (const row of rows) {
     const st = row[0];

@@ -171,6 +171,10 @@ function startNotifyServer() {
           let start = '';
           try { const j = JSON.parse(b2 || '{}'); start = String(j.from || ''); } catch {}
           const win = BrowserWindow.getAllWindows()[0];
+          // 对话框是主程序的模态窗：先把主程序提到最前，否则它会被浏览器窗口挡在后面看不见
+          if (win && !win.isDestroyed()) {
+            try { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } catch {}
+          }
           const r = await dialog.showOpenDialog(win && !win.isDestroyed() ? win : null, {
             title: '选一个文件夹当她的工作区',
             properties: ['openDirectory', 'createDirectory'],
