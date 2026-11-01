@@ -677,7 +677,7 @@ function lastPlace(uin) {
 // 所以她说"不穿""不拍"，说多少遍都一样。现在次数和硬度会变成一句明确的话塞给她。
 const DEMAND_KINDS = [
   ['clothes', /(换|脱|改).{0,10}(衣服|衣裳|装|裙|衣)|换(?:了|过)?(?:一)?[件身套]|换上|穿(?:这|那)(?:个|套|件)|别穿/],
-  ['selfie', /(自拍|拍照|照片|拍一?张|拍给|看看你|看看她|看你一眼|镜头|拍个)/],
+  ['selfie', imageintent.PHOTO_ASK],
   ['voice', /(语音|发段?话|说句话|想听你(说|唱)|听听你的声音)/],
   ['place', /(在哪|在哪呢|人在哪|到哪了|回家没|到家没|在干嘛)/],
   ['show', /((给|让)我看|发我|秀一个|展示一下|拍给我看)/],
@@ -713,6 +713,28 @@ function ownerDemands(uin) {
 
 function ownerAskedChange(uin) {
   return (ownerDemands(uin).kinds.clothes || 0) > 0;
+}
+
+// 主人要照片：这句里直接要了，或者最近半小时里要过（窗口流水 + 聊天记录）。
+function ownerWantsPhotoNow(conv, uin, userText) {
+  if (!conv || conv.kind === 'group') return false;
+  if (conv.kind !== 'local') {
+    const owner = String(cfg.ownerUin || '');
+    if (!owner || String(conv.id) !== owner) return false;
+  }
+  if (imageintent.PHOTO_ASK.test(String(userText || ''))) return true;
+  try { if ((ownerDemands(uin).kinds.selfie || 0) > 0) return true; } catch {}
+  try {
+    const from = Date.now() - 30 * 60e3;
+    const rows = chatlog.recent(uin, 40) || [];
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const r = rows[i];
+      if (!r || r.dir !== 'in' || r.type !== 'text') continue;
+      if (!(Number(r.at) >= from)) continue;
+      if (imageintent.PHOTO_ASK.test(String(r.text || ''))) return true;
+    }
+  } catch {}
+  return false;
 }
 
 // 强度够了就把话说明白：这不是"随便说说"，别再拿脾气当情趣
@@ -1599,10 +1621,14 @@ function drawHint() {
 
 let lastSelfieFailAt = 0;
 
-async function sendDrawing(conv, desc) {
+async function sendDrawing(conv, desc, extra = {}) {
   try {
     const cfgD = settings.load().draw || {};
-    if (cfgD.enabled === false) { log('[draw] 已关闭画图'); return; }
+    if (cfgD.enabled === false) {
+      log('[draw] 已关闭画图');
+      if (extra && extra.owed) await sendMsg(conv, '画不了，这边关着');
+      return;
+    }
     const q = drawQuota();
     if (q.left() <= 0) { log('[draw] 今天画满了'); await sendMsg(conv, '今天画够了，明天再画'); return; }
     const subj = imageintent.subjectOf(desc);
@@ -1640,10 +1666,16 @@ async function sendDrawing(conv, desc) {
   }
 }
 
-async function sendSelfie(conv, scene) {
+async function sendSelfie(conv, scene, extra = {}) {
+  const owed = !!(extra && extra.owed);
   try {
     const cfgD = settings.load().draw || {};
-    if (cfgD.enabled === false) { log('[selfie] 画图已关闭'); return; }
+    if (cfgD.enabled === false) {
+      log('[selfie] 画图已关闭');
+      // 她刚答应要发：不能一声不吭。没答应的随手拍仍保持安静，避免关着画图时刷屏。
+      if (owed) await sendMsg(conv, '拍不了，相机没开');
+      return;
+    }
     const q = drawQuota();
     if (q.left() <= 0) {
       log('[selfie] 今天拍够了');
@@ -1799,12 +1831,14 @@ async function sendSelfie(conv, scene) {
   } catch (e) {
     // 空 message 会打出 "fail " 什么都看不出来；把 err 类型也带上，日志里能查
     log('[selfie] fail', e.message || (e && e.name) || String(e));
-    // 画不出来也要给个话，不能让对方干等（10 分钟内只抱怨一次，免得刷屏）
-    if (Date.now() - lastSelfieFailAt > 10 * 60 * 1000) {
-      lastSelfieFailAt = Date.now();
-      const short = /404|not found|NotFound/i.test(e.message) ? '相机好像坏了' : '卡住了';
-      await sendMsg(conv, `拍不出来，${short} / 等下再试`);
-    }
+    // 没人等的随手拍：10 分钟内只抱怨一次，免得刷屏。
+    // 她这轮答应了要发的：同一轮必须说一声，不能再被这 10 分钟吃掉。
+    const quiet = !owed && Date.now() - lastSelfieFailAt <= 10 * 60 * 1000;
+    if (quiet) return;
+    lastSelfieFailAt = Date.now();
+    const msg = String((e && e.message) || '');
+    const short = /404|not found|NotFound/i.test(msg) ? '相机好像坏了' : '卡住了';
+    await sendMsg(conv, `拍不出来，${short} / 等下再试`);
   }
 }
 
@@ -1813,7 +1847,7 @@ function sceneFileUrl(file) {
 }
 
 // [[场景: 家]] 有旧图就直接发；[[场景: 家 | 描述]] / [[场景更新: 家 | 描述]] 才（重新）画
-async function sendScene(conv, spec) {
+async function sendScene(conv, spec, extra = {}) {
   try {
     const raw = String(spec && spec.raw || '').trim();
     if (!raw) return;
@@ -1822,7 +1856,11 @@ async function sendScene(conv, spec) {
     const desc = String(descRaw || '').trim();
     if (!name) return;
     const cfgD = settings.load().draw || {};
-    if (cfgD.enabled === false) { log('[scene] 画图已关闭'); return; }
+    if (cfgD.enabled === false) {
+      log('[scene] 画图已关闭');
+      if (extra && extra.owed) await sendMsg(conv, '这地方拍不了，画图关着');
+      return;
+    }
 
     const old = scenes.find(name);
     const wantNew = !!spec.force || (!old && desc);
@@ -3090,6 +3128,8 @@ async function replyNow(conv, body, extras = {}) {
 
 async function replyNowInner(conv, body, extras = {}) {
   __lastReplyAt = Date.now();
+  // 后面会把时间纠正、忘词提示拼进 body，要照片与否只看他原话。
+  const __userSaid = String(body || '');
   // 他这句要的是全身还是半身，先记下来：她自己的画面描述经常只有"坐在床边"，
   // 光靠描述判机位就会把"你拍张全身照"拍成半身。
   try { const fw = self.frameFromText(body); if (fw) self.setFrame(fw); } catch {}
@@ -3592,6 +3632,21 @@ async function replyNowInner(conv, body, extras = {}) {
       }
     }
   }
+  // 嘴上答应了发照片、正文里却没有自拍/画/场景标签：按她这句话补拍。
+  // 没人要、她在拒绝、或者说的是改天，就不补。
+  let photoMust = false;
+  {
+    const sayNow = String(out || '').trim();
+    const photoOwed = ownerWantsPhotoNow(conv, mk, __userSaid);
+    const photoClaim = imageintent.claimsIncomingPhoto(sayNow, { asked: photoOwed });
+    const photoTagged = !!((ex.selfies || []).length || ex.draws.length || (ex.scenes || []).length);
+    if (photoOwed && photoClaim && !photoTagged) {
+      const scene = imageintent.sceneHintFromReply(sayNow) || '随手一张';
+      ex.selfies = [scene];
+      log('[selfie] 答应了要发，没有图标签，补拍', scene.slice(0, 40));
+    }
+    photoMust = photoOwed && (photoClaim || photoTagged);
+  }
   if (extras.dry) {
     log('[probe] ->', String(out).replace(/\n/g, ' / ').slice(0, 300) || '(只发媒体)');
     return { out, raw: r.text, inner: inner || '', memos, faces: ex.faces, stickers: ex.stickerFiles, voice: !!ex.voice, draws: ex.draws, selfies: ex.selfies, attachments: ex.attachSpecs || [] };
@@ -3613,9 +3668,9 @@ async function replyNowInner(conv, body, extras = {}) {
   }
   // 复查 F05/F06：附件也走任务入口固定的授权，停止/重开之后不再借新授权
   for (const a of (ex.attachSpecs || [])) await sendAttachment(conv, a, __pinned);
-  for (const d of ex.draws) await sendDrawing(conv, d);
-  for (const s of (ex.selfies || [])) await sendSelfie(conv, s);
-  for (const sc of (ex.scenes || [])) await sendScene(conv, sc);
+  for (const d of ex.draws) await sendDrawing(conv, d, { owed: photoMust });
+  for (const s of (ex.selfies || [])) await sendSelfie(conv, s, { owed: photoMust });
+  for (const sc of (ex.scenes || [])) await sendScene(conv, sc, { owed: photoMust });
   if (conv.kind === 'group') gfAfterSpeak(conv.id);   // 说过话就把续聊窗口续上
   mind.bump(mstate, { type: extras.proactive ? 'proactive' : 'my_reply' });
   mind.save(mk, mstate);

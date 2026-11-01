@@ -115,3 +115,53 @@ export function refPurposeOf(text) {
 export function pointsAtRef(text) {
   return /(这张|那这张|这身|这套|这件|这条|图里|图上的|参考图|照着|按(?:这|那张)|同样?的(?:衣服|外套|裙子|款式)|穿这张|穿那套)/.test(String(text || ''));
 }
+
+// 主人在要一张她的照片。bridge 的「自拍」要求和这里用同一条，避免两处各写一遍后对不上。
+export const PHOTO_ASK = /(自拍|拍照|照片|拍一?张|拍给|看看你|看看她|看你一眼|镜头|拍个)/;
+
+const PHOTO_REFUSE = /(不发|不拍|别拍|不想拍|没心情拍|拍不了|发不了|没有照片|不给你看|不给看|今天不拍|不方便拍|懒得拍|才不拍|才不发|别发)/;
+const PHOTO_DEFER = /(明天|后天|晚点|等会儿|等会|一会儿|一会|回头|下次|改天|待会|明早|今晚再说|过会儿|过会)/;
+const PHOTO_NOW = /(现在|马上|这就|立刻|先发|先拍|刚拍|拍好了|拍完了)/;
+// 句子里明确在交一张图（不依赖「他刚刚要过」）
+const PHOTO_ACT = /(自拍|发照片|拍照片|照片发|照片来了|拍一张|拍张照|拍个照|拍给你|给你拍|来张照|来一张|拍好了|拍完了|发一张|发张照)/;
+// 他这轮要了照片时，短句「好，我发」也算答应。收成词尾，避开「我发现」。
+const PHOTO_SEND = /(我发(?:了|啦|啊|呀|吧|呢|哦|哈|过去|给你|你|张|一|$)|发给你|发你|发过去|给你看|给你发|我拍(?:了|啦|一张|张|个)|这就拍|马上拍|现在拍|发啦)/;
+const PHOTO_OTHER = /(链接|网址|文件|文档|语音条|语音|歌曲|那首歌)/;
+
+function photoPlain(reply) {
+  return String(reply || '')
+    .replace(/\[\[[\s\S]*?\]\]/g, '')
+    .replace(/[\s，,。！!？?、~～…"'“”‘’「」]/g, '');
+}
+
+// 她这句是在答应「现在就给一张」，还是在拒绝 / 推到以后。
+// opts.asked：这轮或最近他在要照片。没要的时候，只有把照片说清楚才算答应。
+export function claimsIncomingPhoto(reply, opts = {}) {
+  const asked = !!(opts && (opts.asked || opts.askedThisTurn));
+  const t = photoPlain(reply);
+  if (!t) return false;
+  if (PHOTO_OTHER.test(t) && !/(自拍|照片|拍一张|拍张)/.test(t)) return false;
+  const refused = PHOTO_REFUSE.test(t);
+  if (refused && !/(还是|但是|不过|可我|但我|不是不).{0,8}(发|拍)/.test(t)) return false;
+  if (PHOTO_DEFER.test(t) && !PHOTO_NOW.test(t)) return false;
+  if (PHOTO_ACT.test(t)) return true;
+  if (!asked) return false;
+  return PHOTO_SEND.test(t);
+}
+
+// 从答应的那句里摘场景；摘不到就返回空，调用方改用她现在的生活状态。
+export function sceneHintFromReply(reply) {
+  const raw = String(reply || '').replace(/\[\[[\s\S]*?\]\]/g, '');
+  const bits = raw.split(/[，,。！!？?\n]/).map((s) => s.trim()).filter(Boolean);
+  const ack = /^(?:好的?|行吧?|嗯+|可以啊?|遵命|马上|现在|这就|立刻|那|你看)$/;
+  const onlySend = /^(?:我发(?:了|啦|啊|呀|吧|呢|哦)?|发给你|发你了?|拍给你|给你拍|给你看|自拍|发照片|拍一张|来一张|照片|发了|拍了|发一张)$/;
+  const kept = [];
+  for (const b of bits) {
+    const x = b.replace(/\s+/g, '');
+    if (!x || ack.test(x) || onlySend.test(x)) continue;
+    kept.push(b.replace(/\s+/g, ' ').trim());
+  }
+  const scene = kept.join('，').trim();
+  if (scene.length < 2) return '';
+  return scene.slice(0, 40);
+}
