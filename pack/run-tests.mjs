@@ -47,6 +47,7 @@ const ALL = [
   ['poc-brain-retry-test', '大脑空回复重试（不许她的回复凭空消失）'],
   ['poc-memory-expire-test', '一次性承诺会过期（明早说的那件事，过了就作废）'],
   ['poc-selfie-frame-test', '全身照别拍成半身（机位按他的原话定）'],
+  ['poc-photo-promise-test', '答应发照片却没写标签：仍要出图；出不了就当轮说明'],
   ['poc-loops-test', '未了之事：做完或过期，不许一直挂着'],
   ['poc-memory-archive-test', '长期档案：旧事不删、聊到能翻出来，说忘就忘'],
   ['poc-doctor-test', '自检：十项最基础的东西，硬伤和可选项要分得清'],
