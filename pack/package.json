@@ -1,6 +1,6 @@
 {
   "name": "dschatbot",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "private": true,
   "description": "DSChatBot — 住在你电脑里的数字人：有作息、有记忆、会主动找你说话（Windows / 本地数据 / 自带设置向导）",
   "main": "electron/main.cjs",
