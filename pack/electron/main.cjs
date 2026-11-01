@@ -333,18 +333,18 @@ function buildTray() {
     return;
   }
   async function refreshTrayStatus() {
+    let setup = {};
+    try { setup = JSON.parse(fs.readFileSync(path.join(dataDir(), 'setup.json'), 'utf8')); } catch {}
+    const name = String(setup.qq?.name || '她');
     try {
       const r = await fetch(consoleUrl() + 'api/state', { signal: AbortSignal.timeout(2500) });
       if (!r.ok) throw new Error('console unavailable');
       const state = await r.json();
-      let setup = {};
-      try { setup = JSON.parse(fs.readFileSync(path.join(dataDir(), 'setup.json'), 'utf8')); } catch {}
-      const name = String(setup.qq?.name || '她');
       tray.setToolTip(`${name} · ${state.bridge?.alive ? '在线' : '离线'}`);
       const enabled = state.config?.proactive?.enabled !== false;
       pauseItem.checked = !enabled;
       tray.setContextMenu(Menu.buildFromTemplate(template));
-    } catch { tray.setToolTip('她 · 离线'); }
+    } catch { tray.setToolTip(`${name} · 离线`); }
   }
   tray.setToolTip('她 · 正在连接');
   const openChat = () => { showWindow(); if (win && !win.isDestroyed()) win.loadURL(chatUrl()).catch(() => {}); };
