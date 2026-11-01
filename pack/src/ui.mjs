@@ -21,7 +21,7 @@ import * as skills from './skills.mjs';
 import * as budget from './budget.mjs';
 import { PATHS, loadSetup, saveSetup, APP } from './paths.mjs';
 import { testKey } from './brain.mjs';
-import { ensurePersonaFile } from './persona-default.mjs';
+import { ensurePersonaFile, setPersonaRelationship, cleanRelationship, relationshipOf } from './persona-default.mjs';
 const RQ = PATHS.data;
 const RQ_AGENT = PATHS.agent;
 
@@ -1372,7 +1372,7 @@ const server = http.createServer(async (req, res) => {
             messages: [{
               role: 'user',
               content: [
-                { type: 'text', text: '用中文详细描述这个角色的外形，供以后画图时保持一致：发色与发型、瞳色、服装与配饰、特殊特征（尾巴、耳鳍、裙摆花纹等）。只输出描述本身，160 字以内，不要解释。' },
+                { type: 'text', text: '用中文详细描述这个角色的外形，供以后画图时保持一致：发色与发型、瞳色、服装与配饰、用户设定的特殊特征（如有）。只输出描述本身，160 字以内，不要解释。' },
                 { type: 'image_url', image_url: { url: 'data:' + mime + ';base64,' + b64 } },
               ],
             }],
@@ -1390,7 +1390,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'GET') {
         try {
           const su = loadSetup() || {};
-          ensurePersonaFile(PERSONA, { name: (su.qq || {}).name, age: (su.qq || {}).age, city: (su.qq || {}).city, persona: (su.qq || {}).persona });
+          ensurePersonaFile(PERSONA, { name: (su.qq || {}).name, age: (su.qq || {}).age, city: (su.qq || {}).city, persona: (su.qq || {}).persona, relationship: (su.qq || {}).relationship });
         } catch {}
         return send(res, 200, { text: readText(PERSONA) });
       }
@@ -1843,6 +1843,7 @@ const server = http.createServer(async (req, res) => {
           ownerUin: String(s.qq?.ownerUin || s.qq?.master || ''),
           uin: String(s.qq?.uin || ''),
           name: String(s.qq?.name || ''),
+          relationship: relationshipOf(readText(PERSONA)) || String(s.qq?.relationship || '女友'),
           dataDir: PATHS.data,
           locFile: PATHS.locFile || '',
           keySet: !!(s.api && s.api.key),
@@ -1855,6 +1856,12 @@ const server = http.createServer(async (req, res) => {
         patch.qq.ownerUin = owner; patch.qq.master = owner;
       }
       if (b.name !== undefined) patch.qq.name = String(b.name || '').trim().slice(0, 24);
+      if (b.relationship !== undefined) {
+        const relationship = cleanRelationship(b.relationship);
+        const result = setPersonaRelationship(PERSONA, relationship, { ...s.qq, ...patch.qq });
+        if (!result.ok) return send(res, 400, result);
+        patch.qq.relationship = relationship;
+      }
       saveSetup(patch);
       return send(res, 200, { ok: true, ownerUin: patch.qq.ownerUin || '', name: patch.qq.name || '' });
     }
@@ -2144,11 +2151,11 @@ const HTML = String.raw`<!doctype html>
 html,body{height:100%}
 body{margin:0;background:var(--bg) radial-gradient(1100px 520px at 18% -12%,#151d2c 0%,rgba(10,12,16,0) 60%) no-repeat fixed;color:var(--fg);font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,-apple-system,sans-serif;display:flex;height:100vh;overflow:hidden;-webkit-font-smoothing:antialiased}
   .wz-mask{ position:fixed; inset:0; background:rgba(6,10,18,.72); display:flex; align-items:center; justify-content:center; z-index:99; }
-  .wz-box{ width:min(560px,92vw); background:#111823; border:1px solid #22303f; border-radius:14px; padding:20px 22px 18px; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+  .wz-box{ width:min(560px,92vw); max-height:90vh; overflow:auto; background:#111823; border:1px solid #22303f; border-radius:14px; padding:20px 22px 18px; box-shadow:0 20px 60px rgba(0,0,0,.5); }
   .wz-t{ font-size:19px; font-weight:700; color:#e8eef6; }
   .wz-d{ font-size:12.5px; color:#8b9bad; margin:6px 0 14px; }
   .wz-l{ display:block; font-size:12.5px; color:#9fb0c2; margin-bottom:10px; }
-  .wz-l input{ display:block; width:100%; margin-top:5px; background:#0d1420; border:1px solid #22303f; border-radius:9px; color:#e8eef6; padding:8px 10px; font-family:inherit; font-size:13px; }
+  .wz-l input,.wz-l select{ display:block; width:100%; margin-top:5px; background:#0d1420; border:1px solid #22303f; border-radius:9px; color:#e8eef6; padding:8px 10px; font-family:inherit; font-size:13px; }
   .wz-btns{ display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; }
   .wz-log{ margin-top:12px; max-height:190px; overflow:auto; font-size:12.5px; line-height:1.7; }
   .wz-line{ color:#9fb0c2; }
@@ -2339,7 +2346,7 @@ button.btn,button.primary{background:linear-gradient(180deg,#bc607b,#a54c67);bor
 .gr,.prow{padding-top:14px;padding-bottom:14px;border-bottom-color:var(--line)}.sect{color:#e3c4d2}.prow b{color:#f1dbe6}.gr .lbl{color:#d0b9c5}
 th{background:#30232b;color:#dcc4d0;font-size:12px;padding:12px;text-align:left}td{padding:13px 12px;border-bottom-color:var(--line)}tbody tr:hover td,tr:hover td{background:#35272f}pre,.st,.tip p,.addbar,.pill,.pricechip{background:#211b1f;border-color:var(--line);color:#d8c2cf}pre{font-size:13px}.addbar input{background:#1b161a}.pricechip i{color:var(--dim)}.bar{background:#44313c}.bar i{background:linear-gradient(90deg,var(--acc),var(--acc2))}
 .empty,.qrempty{background:linear-gradient(145deg,#34252d66,#211b1f66);padding:38px 24px;color:var(--dim)}.dd{background:#30232b;border-color:var(--line2)}.dd .mi{padding:12px;border-bottom-color:var(--line)}.dd .mi:hover{background:#49303e}
-.wz-mask{background:#171216cf;backdrop-filter:blur(8px)}.wz-box{background:var(--card);border-color:var(--line2);border-radius:22px;padding:28px}.wz-t{color:var(--fg)}.wz-d,.wz-l,.wz-line{color:var(--dim);font-size:13px}.wz-l input{background:#201a1e;border-color:var(--line2);color:var(--fg);padding:10px}
+.wz-mask{background:#171216cf;backdrop-filter:blur(8px)}.wz-box{background:var(--card);border-color:var(--line2);border-radius:22px;padding:28px}.wz-t{color:var(--fg)}.wz-d,.wz-l,.wz-line{color:var(--dim);font-size:13px}.wz-l input,.wz-l select{background:#201a1e;border-color:var(--line2);color:var(--fg);padding:10px}
 .chatempty,.chathint,.msg .meta{color:var(--dim)}.msg .meta{font-size:12px}.avatar{background:#4b303d}.bubble{padding:12px 16px;border-radius:18px;line-height:1.75;box-shadow:0 3px 10px #0002}.msg.out .bubble{background:#362831;color:var(--fg)}.msg.in .bubble{background:#a54c67;color:#fff5f8}.chatbar{border-color:var(--line)}.chatbar textarea{background:#272024;border-color:var(--line2);color:var(--fg)}.chatbar .pic{background:#392a33;color:#ecd5e0;border-color:var(--line2)}.chatbar .pri{background:#a54c67}.code-big{background:#30242a;border-color:var(--line2)}
 @media(max-width:820px){nav{padding:10px 12px}.brand{padding-bottom:0;margin-bottom:0}.topbar{padding:16px 12px}.topbar h1{font-size:21px}.wrap{padding:12px 0 0}.card{padding:18px}textarea,input,select{font-size:16px}.gr .hint{font-size:13px}.wz-box{max-height:90dvh;overflow:auto}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;scroll-behavior:auto!important}}
@@ -2383,7 +2390,7 @@ th{background:#30232b;color:#dcc4d0;font-size:12px;padding:12px;text-align:left}
         <div class="row" style="margin-bottom:6px"><b style="font-size:13px">长相描述</b>
           <button class="ghost" onclick="describeRef()">用图片自动生成描述</button>
           <button class="btn" onclick="saveSelf()">保存描述</button></div>
-        <textarea id="sfDesc" placeholder="例：蓝发及腰的少女，鲸鱼耳鳍，深蓝女仆裙配白色围裙，围裙上有黑色小鲸鱼图案，背后一条深蓝鲸尾，蓝色眼睛。" style="height:170px"></textarea>
+        <textarea id="sfDesc" placeholder="按你的人设填写外形、发型、服装等；留空不预设外貌。" style="height:170px"></textarea>
       </div>
     </div>
   </div>
@@ -4133,6 +4140,8 @@ async function maybeWizard(){
       + '  <div class="wz-t">第一次见面</div>'
       + '  <div class="wz-d">三步就能让她开口。做完了这张卡不会再出现。</div>'
       + '  <label class="wz-l">她叫什么<input id="wzName" value="' + esc(name0) + '" maxlength="24"></label>'
+      + '  <label class="wz-l">关系/身份<select id="wzRelationship"><option>女友</option><option>老婆</option><option>朋友</option><option>自定义</option></select></label>'
+      + '  <label class="wz-l">自定义身份（选择自定义时填写）<input id="wzRelationshipCustom" maxlength="40"></label>'
       + '  <label class="wz-l">你的 QQ（可以留空，留空就只在电脑上说）<input id="wzUin" value="' + esc(uin0) + '" placeholder="例如 123456789" inputmode="numeric"></label>'
       + '  <label class="wz-l">大脑地址<input id="wzBase" value="https://api.deepseek.com/v1"></label>'
       + '  <label class="wz-l">模型<input id="wzModel" value="deepseek-flash"></label>'
@@ -4142,6 +4151,9 @@ async function maybeWizard(){
       + '  <div id="wzLog" class="wz-log"></div>'
       + '</div>';
     document.body.appendChild(box);
+    const relationship = s.relationship || '女友';
+    $('#wzRelationship').value = ['女友', '老婆', '朋友'].includes(relationship) ? relationship : '自定义';
+    $('#wzRelationshipCustom').value = $('#wzRelationship').value === '自定义' ? relationship : '';
     $('#wzSkip').onclick = function(){ box.remove(); };
     $('#wzGo').onclick = wzSave;
     setTimeout(function(){ try { $('#wzName').focus(); } catch (e) {} }, 100);
@@ -4166,11 +4178,14 @@ async function wzSave(){
   const model = (($('#wzModel') || {}).value || '').trim() || 'deepseek-flash';
   if (!key) { wzLine('先填 API Key——没有它她不会说话。', 'bad'); return; }
 
+  const relationship = $('#wzRelationship').value === '自定义' ? $('#wzRelationshipCustom').value.trim() : $('#wzRelationship').value;
+  if (!relationship) { wzLine('请填写自定义身份', 'bad'); return; }
   const go = $('#wzGo');
   if (go) { go.disabled = true; go.textContent = '正在保存…'; }
   wzLine('保存中…');
   try {
-    await api('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, ownerUin: uin }) });
+    const rs = await api('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, ownerUin: uin, relationship: relationship }) });
+    if (rs && rs.ok === false) throw new Error(rs.err || '身份保存失败');
     const rb = await api('/api/brain', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baseUrl: baseUrl, model: model, key: key }) });
     if (rb && rb.ok === false) throw new Error(rb.err || '保存失败');
     wzLine('好了，正在让她重新起来…');

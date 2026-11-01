@@ -3,8 +3,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\//, ''));
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = (p) => fs.readFileSync(path.join(HERE, '..', 'src', p), 'utf8');
 const bridge = read('bridge.mjs');
 const selfSrc = read('self.mjs');
@@ -58,7 +59,8 @@ t('需求识别：他明确要求换装时强制换（30 分钟窗口 + 只认�
   assert.ok(/const askedChange = ownerAskedChange\(memKeyOf\(conv\)\);/.test(bridge));
   assert.ok(/function ownerAskedChange\(uin\) \{\s*return \(ownerDemands\(uin\)\.kinds\.clothes \|\| 0\) > 0;/.test(bridge));
   const kinds = [...bridge.matchAll(/\['(clothes|selfie|voice|place|show)', \/(.*?)\/\]/g)];
-  assert.equal(kinds.length, 5, '需求类别应有 5 类');
+  assert.equal(kinds.length, 4, '四类内联正则');
+  assert.ok(/\['selfie', imageintent\.PHOTO_ASK\]/.test(bridge), '自拍复用统一需求识别');
   const re = new RegExp(kinds.find((k) => k[1] === 'clothes')[2]);
   for (const s of ['换一套衣服嘛，怎么老是穿这个', '你换上那件卫衣试试', '换一身']) {
     assert.ok(re.test(s), '没认出来：' + s);

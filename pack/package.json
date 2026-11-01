@@ -25,7 +25,18 @@
       "assets/**/*",
       "launch.mjs",
       "package.json",
-      "!src/wizard.html.bak"
+      "!src/wizard.html.bak",
+      "!**/{data,private,private-data,userdata,user-data,agent-home,memory,logs,log,backups,keys,secrets,.ssh}/**/*",
+      "!**/.env",
+      "!**/.env.*",
+      "!**/*.{log,jsonl,key,pem,p12,pfx,keystore,jks}",
+      "!**/{api,setup,config,sessions,voices,interests,proactive}.json",
+      "!**/{data-location,chat-port,ui-port}.txt",
+      "!**/{id_rsa,id_ed25519}*",
+      "!**/.git/**/*",
+      "!**/*.log.*",
+      "!**/*.bak",
+      "!**/*.tmp"
     ],
     "win": {
       "target": [

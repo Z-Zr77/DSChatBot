@@ -34,6 +34,7 @@ export function ensurePersonaFile(dest, opts = {}) {
     }
     let tpl = fs.readFileSync(TEMPLATE, 'utf8');
     const line = firstLine(opts.name, opts.age, opts.city, opts.persona);
+    if (opts.relationship) tpl = replaceRelationship(tpl, opts.relationship);
     tpl = tpl.replace(/^你是「\{NAME\}」.*$/m, line);
     tpl = tpl
       .replace(/\{NAME\}/g, String(opts.name || '她').trim())
@@ -49,3 +50,29 @@ export function ensurePersonaFile(dest, opts = {}) {
 }
 
 export const PERSONA_TEMPLATE = TEMPLATE;
+
+// 只修改身份行，保留用户写的其他人设内容。
+export function cleanRelationship(value) {
+  return String(value || '').replace(/[\r\n\u0000-\u001f]/g, ' ').trim().slice(0, 40);
+}
+export function relationshipOf(text = '') {
+  const role = String(text).match(/^关系\/身份[：:]\s*([^\n]+)/m)?.[1]?.trim() || '';
+  return role.replace(/^(女友|老婆|朋友)[（(]默认[）)]$/, '$1');
+}
+function replaceRelationship(text, value) {
+  const line = '关系/身份：' + cleanRelationship(value);
+  return /^关系\/身份[：:].*$/m.test(text)
+    ? text.replace(/^关系\/身份[：:].*$/m, () => line)
+    : line + '\n\n' + text;
+}
+export function setPersonaRelationship(dest, value, opts = {}) {
+  const relationship = cleanRelationship(value);
+  if (!relationship) return { ok: false, err: '请选择身份或填写自定义身份' };
+  const result = ensurePersonaFile(dest, { ...opts, relationship });
+  if (!result.ok) return result;
+  try {
+    const current = fs.readFileSync(dest, 'utf8');
+    fs.writeFileSync(dest, replaceRelationship(current, relationship), 'utf8');
+    return { ok: true, relationship };
+  } catch (e) { return { ok: false, err: e.message }; }
+}

@@ -41,7 +41,7 @@ t('bridge：/say 收图时把路径传进 noteIncoming', () => {
 t('bridge：换装时把他的图一起给（refFiles=她+他，且必须点名）', () => {
   assert.ok(/const hisRef = refForClothes\(memKeyOf\(conv\), sTxt\)/.test(bridge), '没按用途取他的图');
   assert.ok(/opts\.refFiles = refFiles;/.test(bridge), '没传多图');
-  assert.ok(/第1张是她本人（对脸、发型、耳鳍）；第2张是他刚发来的参考图/.test(bridge), '没写多图说明');
+  assert.ok(/第1张是她本人（对脸、发型）；第2张是他刚发来的参考图/.test(bridge), '没写多图说明');
 });
 
 t('bridge：他点名的那身衣服优先，且不再回退到"日常外出装"', () => {

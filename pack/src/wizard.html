@@ -19,7 +19,7 @@ h1{font-size:26px;margin:0 0 6px}
 .tip{color:var(--dim);margin:6px 0 14px}
 .row{display:flex;align-items:center;gap:12px}
 input,button,select{font:inherit}
-input[type=text]{background:#0f141b;border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:9px 11px;flex:1;min-width:0}
+input[type=text],select{background:#0f141b;border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:9px 11px;flex:1;min-width:0}
 button{cursor:pointer;border-radius:8px;padding:8px 15px;border:1px solid transparent;font-weight:600}
 button.btn{background:linear-gradient(180deg,#6aa8ff,#4b8df0);color:#fff;border-color:#7fb4ff}
 button.ghost{background:#1b212c;color:var(--fg);border-color:var(--line)}
@@ -91,6 +91,15 @@ a{color:var(--acc);text-decoration:none}
     <p class="tip" data-i18n="c1.uinLabel" style="margin-top:14px">机器人 QQ（小号）</p>
     <div class="row">
       <input type="text" id="uin" readonly placeholder="扫码后自动填入">
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>关系/身份</h2>
+    <p class="tip">选择相处身份，保存到人设；其他人格内容可以在控制台继续编辑。</p>
+    <div class="row">
+      <select id="relationship" aria-label="关系/身份"><option>女友</option><option>老婆</option><option>朋友</option><option>自定义</option></select>
+      <input type="text" id="relationshipCustom" maxlength="40" placeholder="选择自定义时填写身份" aria-label="自定义身份">
     </div>
   </div>
 
@@ -226,7 +235,9 @@ async function save() {
   $('btnSave').disabled = true;
   $('footMsg').className = 'msg';
   $('footMsg').textContent = t('msg.saving');
-  const payload = { qq: { uin: $('uin').value.trim() }, napcat: { dir: $('napcatDir').value.trim() } };
+  const relationship = $('relationship').value === '自定义' ? $('relationshipCustom').value.trim() : $('relationship').value;
+  if (!relationship) { $('btnSave').disabled = false; $('footMsg').textContent = '请填写自定义身份'; return; }
+  const payload = { qq: { uin: $('uin').value.trim(), relationship }, napcat: { dir: $('napcatDir').value.trim() } };
   const r = await post('/api/save', payload);
   if (!r.ok) {
     $('btnSave').disabled = false;
@@ -239,6 +250,12 @@ async function save() {
   finish(false);
 }
 async function finish(skip) {
+  if (skip) {
+    const relationship = $('relationship').value === '自定义' ? $('relationshipCustom').value.trim() : $('relationship').value;
+    if (!relationship) { $('footMsg').textContent = '请填写自定义身份'; return; }
+    const r = await post('/api/save', { qq: { relationship } });
+    if (!r.ok) { $('footMsg').textContent = r.err || '保存失败'; return; }
+  }
   const done = gotoConsole();
   try { await post('/api/finish', { skip: skip ? 1 : 0 }); } catch (e) {}
   await done;
@@ -262,7 +279,10 @@ $('napcatDir').addEventListener('input', (e) => { e.target.dataset.touched = '1'
 
 (async () => {
   applyLang();
-  try { const st = await get('/api/state'); if (st.dataDir) $('dataDir').textContent = st.dataDir; } catch (e) {}
+  try { const st = await get('/api/state'); if (st.dataDir) $('dataDir').textContent = st.dataDir;
+    const relationship = st.setup?.qq?.relationship || '女友';
+    $('relationship').value = ['女友', '老婆', '朋友'].includes(relationship) ? relationship : '自定义';
+    $('relationshipCustom').value = $('relationship').value === '自定义' ? relationship : ''; } catch (e) {}
   rescan();
   setInterval(rescan, 3000);
   setInterval(() => { if ($('qrbox').style.display !== 'none') $('qr').src = '/qr.png?t=' + Date.now(); }, 5000);
