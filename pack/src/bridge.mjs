@@ -1646,7 +1646,7 @@ async function sendDrawing(conv, desc, extra = {}) {
     if (hasHer) {
       prompt = self.photoPrompt(desc, {
         refNote: wantHis
-          ? '第1张是她本人（对脸、发型、耳鳍）；第2张是他发来的参考图——只照它的衣服/物件（款式、颜色、材质），不要第2张里的人脸、身体和背景。'
+          ? '第1张是她本人（对脸、发型）；第2张是他发来的参考图——只照它的衣服/物件（款式、颜色、材质），不要第2张里的人脸、身体和背景。'
           : '',
       });
       const ref = self.refFile();
@@ -1771,7 +1771,7 @@ async function sendSelfie(conv, scene, extra = {}) {
       : [];
     if (useHisRef) log('[selfie] 带他发的参考图:', path.basename(hisRef), `purpose=${imageintent.refPurposeOf(sTxt)}`);
     const refNote = useHisRef
-      ? '第1张是她本人（对脸、发型、耳鳍）；第2张是他刚发来的参考图——只照它的衣服（款式、颜色、材质、穿法），不要第2张里的人脸、身体和背景，哪怕那是模特或人体模型也只抄衣服。把第2张的衣服穿到第1张的她身上。'
+      ? '第1张是她本人（对脸、发型）；第2张是他刚发来的参考图——只照它的衣服（款式、颜色、材质、穿法），不要第2张里的人脸、身体和背景，哪怕那是模特或人体模型也只抄衣服。把第2张的衣服穿到第1张的她身上。'
       : '';
     // 这句话里她手里有东西 → 不能再写'举着手机自拍'，否则模型会多画一只举手机的手
     const busyHands = /(拿|抱着|端着|拎|举着|握着|捧着)/.test(sTxt);
@@ -3203,6 +3203,7 @@ function withConvLock(key, fn) {
 
 // 对外仍然是 reply(...)，所有调用点（flush / 主动消息 / 本地通道）都自动串行
 async function reply(conv, body, extras = {}) {
+  if (extras.proactive && !extras.manualProactive && settings.load().proactive?.enabled === false) return;
   if (extras.proactive && moments.relationshipFor(conv, cfg.ownerUin, personaText(12000)) && moments.isQuiet(pstate[memKeyOf(conv)])) return;
   const key = convKey(conv);
   const lkey = lockKeyOf(conv);
@@ -4287,6 +4288,7 @@ function loadCredentialRefs() {
 loadCredentialRefs();
 try {
   const pr = ensurePersonaFile(cfg.personaSrc, {
+    relationship: (loadSetup().qq || {}).relationship,
     name: SETUP.qq.name, age: SETUP.qq.age, city: SETUP.qq.city, persona: SETUP.qq.persona,
   });
   if (pr.created) log('[persona] 首次启动：已用自带模板写了一份人设（控制台「她」页可改）');
@@ -4862,7 +4864,7 @@ function startLocalChannel() {
     if (p === '/proactive') {
       if (req.method !== 'POST') return __json(res, 405, { ok: false, err: 'method' });
       __json(res, 200, { ok: true });
-      reply(__localConv(), '', { proactive: true }).catch((e) => log('[local] proactive fail', e.message));
+      reply(__localConv(), '', { proactive: true, manualProactive: true }).catch((e) => log('[local] proactive fail', e.message));
       return;
     }
     return __json(res, 404, { ok: false });

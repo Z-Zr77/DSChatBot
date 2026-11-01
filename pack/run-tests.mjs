@@ -13,6 +13,7 @@ const LOCK = path.join(os.tmpdir(), 'qq-bot-tests.lock');
 
 const ALL = [
   ['poc-moments-test', '恋人相处：身份隔离 / 关心触发 / 忙时安静'],
+  ['poc-blank-version-test', '空白版：外貌无预设 / 身份保存 / 打包隐私排除'],
   ['poc-acceptance-fix-test', '验收六条：exec 越权 / 首条发送 / 档位 / 例子能力 / 原生框超时 / 审批超时'],
   ['poc-chatwork-e2e-test', '端到端：聊天窗发一句话，桥接真的收到、她真的回'],
   ['poc-polish2-test', '停止报改动数 / 读宽改严 / 记忆来源与更替链'],

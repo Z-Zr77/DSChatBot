@@ -332,14 +332,38 @@ function buildTray() {
     logLine('tray failed', e && e.message || String(e));
     return;
   }
-  tray.setToolTip('大肥鱼 · DSChatBot');
+  async function refreshTrayStatus() {
+    let setup = {};
+    try { setup = JSON.parse(fs.readFileSync(path.join(dataDir(), 'setup.json'), 'utf8')); } catch {}
+    const name = String(setup.qq?.name || '她');
+    try {
+      const r = await fetch(consoleUrl() + 'api/state', { signal: AbortSignal.timeout(2500) });
+      if (!r.ok) throw new Error('console unavailable');
+      const state = await r.json();
+      tray.setToolTip(`${name} · ${state.bridge?.alive ? '在线' : '离线'}`);
+      const enabled = state.config?.proactive?.enabled !== false;
+      pauseItem.checked = !enabled;
+      tray.setContextMenu(Menu.buildFromTemplate(template));
+    } catch { tray.setToolTip(`${name} · 离线`); }
+  }
+  tray.setToolTip('她 · 正在连接');
+  const openChat = () => { showWindow(); if (win && !win.isDestroyed()) win.loadURL(chatUrl()).catch(() => {}); };
+  const pauseItem = { label: '暂停主动消息', type: 'checkbox', checked: false, click: async (item) => {
+    try {
+      const r = await fetch(consoleUrl() + 'api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proactive: { enabled: !item.checked } }), signal: AbortSignal.timeout(2500) });
+      if (!r.ok) throw new Error('save failed');
+    } catch (e) { logLine('pause proactive failed', String(e)); }
+    await refreshTrayStatus();
+  } };
   const auto = { label: '开机自动启动', type: 'checkbox', checked: autoStartOn(), click: (item) => setAutoStart(item.checked) };
-  const menu = Menu.buildFromTemplate([
-    { label: '打开聊天', click: () => showWindow() },
+  const template = [
+    { label: '打开聊天', click: openChat },
     { label: '打开控制台', click: () => openConsole() },
     { label: '设置向导（改 NapCat / 重新扫码）', click: () => openWizard() },
     { type: 'separator' },
+    pauseItem,
     auto,
+    { type: 'separator' },
     { label: '重启 QQ 内核', click: () => restartKernel(true) },
     { label: '退出时同时停 QQ 内核', type: 'checkbox', checked: stopKernelOnQuit(), click: (item) => setStopKernelOnQuit(item.checked) },
     { label: '安装内核守护（一次授权）', click: () => installCoreTask() },
@@ -354,10 +378,14 @@ function buildTray() {
     { label: '重启程序', click: () => { quitting = true; app.relaunch(); app.exit(0); } },
         { type: 'separator' },
         { label: '退出', click: () => { quitting = true; app.quit(); } },
-  ]);
-  tray.setContextMenu(menu);
-  tray.on('click', () => showWindow());
-  tray.on('double-click', () => showWindow());
+  ];
+  tray.setContextMenu(Menu.buildFromTemplate(template));
+  refreshTrayStatus();
+  const statusTimer = setInterval(refreshTrayStatus, 15000);
+  statusTimer.unref();
+  app.once('will-quit', () => clearInterval(statusTimer));
+  tray.on('click', openChat);
+  tray.on('double-click', openChat);
 }
 
 

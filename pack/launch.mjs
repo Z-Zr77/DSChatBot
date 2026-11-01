@@ -9,6 +9,7 @@ import { spawn, execFile } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { PATHS, DATA, APP, LOC_FILE, ensureDirs, loadSetup, saveSetup, isConfigured } from './src/paths.mjs';
 import { testKey } from './src/brain.mjs';
+import { ensurePersonaFile, setPersonaRelationship, cleanRelationship } from './src/persona-default.mjs';
 
 const IS_ELECTRON = !!process.versions.electron;
 const WIZARD_PORT = Number(process.env.QQBOT_WIZARD_PORT || 3071);
@@ -52,14 +53,7 @@ ensureDirs();
 
 // ---------- 首次运行：准备默认人格与颜文字表 ----------
 function seedDefaults(s) {
-  if (!fs.existsSync(PATHS.persona)) {
-    const tpl = path.join(APP, 'assets', 'persona.default.md');
-    let body = '';
-    try { body = fs.readFileSync(tpl, 'utf8'); } catch {}
-    if (!body) body = '# 角色设定\n\n你叫 {{NAME}}，在 QQ 上和人聊天。\n';
-    body = body.replaceAll('{{NAME}}', s.qq.name || '小助手').replaceAll('{{PERSONA}}', s.qq.persona || '有自己的生活节奏和小爱好');
-    fs.writeFileSync(PATHS.persona, body, 'utf8');
-  }
+  ensurePersonaFile(PATHS.persona, s.qq || {});
   if (!fs.existsSync(PATHS.emoticons)) {
     const src = path.join(APP, 'src', 'emoticons.json');
     if (fs.existsSync(src)) fs.copyFileSync(src, PATHS.emoticons);
@@ -358,6 +352,12 @@ function startWizard() {
             qq: { ...prev.qq, ...(j.qq || {}) },
             napcat: { ...prev.napcat, ...(j.napcat || {}) },
           };
+          if (j.qq?.relationship !== undefined) {
+            const relationship = cleanRelationship(j.qq.relationship);
+            const result = setPersonaRelationship(PATHS.persona, relationship, merged.qq);
+            if (!result.ok) return json(400, result);
+            merged.qq.relationship = relationship;
+          }
           const s = saveSetup(merged);
           seedDefaults(s);
           return json(200, { ok: true, setup: s });
