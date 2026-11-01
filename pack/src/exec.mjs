@@ -19,8 +19,9 @@ export const DEFAULT_ALLOW = [
   'python', 'python3', 'py', 'pip', 'pip3',
   'git', 'tsc', 'pytest', 'jest', 'mocha', 'vitest',
   'cargo', 'go', 'dotnet', 'mvn', 'gradle',
-  // dir / type / echo / mkdir / copy 是 cmd 内建命令，没有 .exe：机器上有 Git/MSYS 才跑得起来，
-  // 干净的 Windows 上会 ENOENT。真要列目录读文件，走 list_dir / read_file 那两个工具更稳。
+  // dir / type / where / findstr 是 cmd 内建命令，没有同名 .exe；下面 runOnce 会用
+  // `cmd /d /c <命令>` 包一层跑（见 :16x 的 realExe 分支），所以干净 Windows 上也能用，
+  // 不是 ENOENT。要列目录 / 读文件仍建议走 list_dir / read_file（能带路径守卫与摘要）。
   'dir', 'type', 'where', 'findstr', 'tar',
 ];
 

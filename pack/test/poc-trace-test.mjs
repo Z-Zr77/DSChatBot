@@ -85,7 +85,7 @@ t('弹窗收成两步：选文件夹 → 开始；例子可点、直接发给她
   assert.match(dialog, /id="wkFirst"/);
   assert.match(dialog, /window\.__WK_EXAMPLES|const EX = /);
   assert.match(dialog, /\/api\/chat\/send/);
-  assert.match(dialog, /useExisting: true, confirmWrite: true/);
+  assert.match(dialog, /useExisting: true, confirmWrite: __mode !== 'read'/);
 });
 
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' ' + pass + ' / FAIL ' + fail);

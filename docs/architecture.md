@@ -68,7 +68,7 @@ bridge.mjs  ──► 归属判定（主人 / 群友 / 陌生人）
 
 ## 工程质量
 
-- **29 个测试套件**（`node --test`，并行），入口 `pack/run-tests.mjs`；跑完约 25 秒。
+- **38 个测试套件**（`node --test`，由 `pack/run-tests.mjs` 串行调度），跑完约 35 秒。
   覆盖：消息路由、预算熔断、记忆衰减、睡眠状态机、授权边界、打包产物、界面契约。
 - **热更新**：改完 `pack/src/*.mjs` 拷到安装目录，`POST /api/restart` 即生效，不用重装。
 - **日志轮转**：单文件超 8MB 自动改名，避免长期运行时日志撑爆磁盘。
@@ -78,7 +78,7 @@ bridge.mjs  ──► 归属判定（主人 / 群友 / 陌生人）
 
 1. `bridge.mjs` 4.5k 行是调度层没拆干净的结果。`brain/ memory/ draw/ voice/ tools/` 都已独立，剩下的"编排"还在一个文件里——下一步是抽 dispatcher + 用事件总线替掉直接互相调用。
 2. 24 处空 `catch` 与 19 处 `.catch(() => {})`：早期为了"别崩"写下的，正在逐处改成记日志。
-3. 没有 CI。测试在本地跑，靠开发者自觉——上 GitHub Actions 是下一步。
+3. CI 已接（`.github/workflows/test.yml`，windows-latest + Node 22），但套件以正则/源码断言为主，跨入口的行为覆盖不到，仍需定向验证。
 4. 单机、单用户、Windows only。没做多实例与并发控制（`data/` 用文件锁，够用但不优雅）。
 
 ## 目录

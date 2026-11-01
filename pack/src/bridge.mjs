@@ -1245,6 +1245,10 @@ function toolCapsOk(conv, name, scope) {
       // 执行能力：必须在一个活动工作会话里，且 mode 不是 off；即使满足也要人工审批（下面 askApproval）
       if (!scope || !scope.active) return { ok: false, err: '跑命令要先进工作模式：在控制台或聊天窗点「进入工作模式」选个文件夹' };
       if (execCfg().mode === 'off') return { ok: false, err: '命令执行是关着的（设置 work.exec.mode）' };
+      // 授权闸门：这个会话必须真的被授予 exec（以前漏了这句，只读会话也能跑命令）
+      if (scope.stale) return { ok: false, err: '这个工作会话已经停了，别继续动手；要跑命令就重新开一个' };
+      const gExec = grants.requireCap(workKey(conv), 'exec', scope.epoch);
+      if (!gExec.ok) return { ok: false, err: gExec.err };
       continue;
     }
     if (cap === 'fs:read') continue;
@@ -4414,7 +4418,18 @@ function startLocalChannel() {
       if (w.toolsEnabled !== true) return __json(res, 403, { ok: false, err: '「允许她动电脑」是关着的：先到「设置」里打开，再选工作文件夹' });
       if (!b.root) return __json(res, 400, { ok: false, err: '缺工作目录' });
       const asked = path.resolve(String(b.root).trim());
-      const capsWant = (Array.isArray(b.caps) && b.caps.length ? b.caps : [ 'fs:read' ]).map(String);
+      // 能力以「档位」为准：b.mode 优先，其次设置里存的 defaultMode。
+      // 客户端传的 caps 只用来记账，不许超过档位给的能力——否则谁调接口谁说了算，闸门等于没有。
+      const wantMode = (() => {
+        const m = String((b && b.mode) || '').trim();
+        if (m && MODE_CAPS[m]) return m;
+        const d = String(workCfg().defaultMode || 'write');
+        return MODE_CAPS[d] ? d : 'write';
+      })();
+      const capsWant = MODE_CAPS[wantMode].slice();
+      const askedCaps = (Array.isArray(b.caps) ? b.caps : []).map(String);
+      const capped = askedCaps.filter((c) => !capsWant.includes(c));
+      if (capped.length) log('[work] 起始能力按档位收窄：', wantMode, '挡掉了 ' + capped.join(','));
       const wantWrite = capsWant.includes('fs:write');
       // 写权限必须由界面明确确认，不能只靠一个参数（复查 R4）
       if (wantWrite && b.confirmWrite !== true) return __json(res, 400, { ok: false, err: '要改文件得在弹窗里明确勾选并确认（confirmWrite）' });

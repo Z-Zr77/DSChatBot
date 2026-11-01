@@ -2936,6 +2936,12 @@ function toggleAdv(force){
   btn.textContent = open ? '收起' : '显示更多：最近日志、备份、授权码、人物';
   try { localStorage.setItem('advOpen', open ? '1' : '0'); } catch (e) {}
 }
+// 两个入口（控制台 / 聊天窗）同时开着时，一边收起、另一边要跟着收
+try {
+  window.addEventListener('storage', (ev) => {
+    if (ev && ev.key === 'advOpen') { try { toggleAdv(ev.newValue === '1'); } catch (e) {} }
+  });
+} catch (e) {}
 
 async function runDoctor(){
   // 概览是异步渲染的：从 #doctor 直接进来时盒子还没建好，等它一下
@@ -3030,7 +3036,7 @@ async function loadState(){
     + '</div>'
     ;
   paintQr(S, l);
-  try { if (localStorage.getItem('advOpen') === '1') { toggleAdv(true); setTimeout(loadRecent, 30); } } catch (e) {}
+  try { toggleAdv(localStorage.getItem('advOpen') === '1'); setTimeout(loadRecent, 30); } catch (e) {}
   renderDelCode();
   loadBackup();
   try { loadWork(); } catch (e) {}
@@ -3405,7 +3411,10 @@ function renderWorkEdits(list){
 }
 async function openWorkDialog(){
   const d = miniDialog(window.__WK_INNER);
-  window.__wkBind(d, { api, toast, source: 'console', onDone: () => loadWork() });
+  window.__wkBind(d, {
+    api, toast, source: 'console', onDone: () => loadWork(),
+    sendText: async (text) => api('/api/chat/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) }),
+  });
 }
 async function stopWork(){
   if (!(await askConfirm('停止这次工作会话？她会立刻失去改文件的权限，挂着的等待审批也一起作废。', '停止工作会话'))) return;
@@ -3552,6 +3561,20 @@ async function pollApprovals(force){
     if (ids === __apIds && !force) return;
     __apIds = ids;
     box.style.display = 'block';
+    // 真实参数叫 timeoutSec；生效值还要受 work.exec.timeoutMs 的 1–300 秒限制。
+    // 没有这个字段就别编一个数出来——以前一律显示 60 秒，等于骗人。
+    const cmdSec = (x) => {
+      const a = (x && x.args) || {};
+      const n = Number(a.timeoutSec);
+      if (n > 0) return Math.min(300, Math.max(1, Math.round(n)));
+      const ms = Number(x && x.timeoutMs);
+      return ms > 0 ? Math.round(ms / 1000) : 0;
+    };
+    const cmdExtra = (x) => {
+      const a = (x && x.args) || {};
+      if (!Array.isArray(a.cmd)) return '';
+      return Object.keys(a).filter((k) => k !== 'cmd').map((k) => k + '=' + JSON.stringify(a[k])).join(' · ');
+    };
     box.innerHTML = '<div style="padding:11px 13px;border-bottom:1px solid #24304a;font-weight:600">她想执行命令，等你点头</div>'
       + items.map((x) =>
         '<div style="padding:11px 13px;border-bottom:1px solid #24304a">'
@@ -3561,7 +3584,7 @@ async function pollApprovals(force){
             : '')
         + (x.dir ? '<div class="dim" style="font-size:12px;margin-top:2px">在工作区里跑：' + esc(x.dir) + (x.mode ? ' · ' + esc(x.mode === 'workspace' ? '只能动这个文件夹' : x.mode === 'full' ? '不限制路径（慎用）' : '已关闭') : '') + '</div>' : '')
         + (x.name === 'run_cmd' && x.args && Array.isArray(x.args.cmd)
-            ? '<div class="dim" style="font-size:12px;margin:4px 0 8px">这是要跑的命令全文；点「同意」才会执行，超时 ' + esc(String(x.timeoutMs || x.args.timeoutMs || 60)) + ' 秒</div>'
+            ? '<div class="dim" style="font-size:12px;margin:4px 0 8px">这是要跑的命令全文；点「同意」才会执行' + (cmdSec(x) ? '，这次超时 ' + cmdSec(x) + ' 秒' : '') + (cmdExtra(x) ? ' · ' + esc(cmdExtra(x)) : '') + '</div>'
             : '<pre style="white-space:pre-wrap;word-break:break-all;margin:6px 0 8px;font-size:12px;color:#c9d6ee;background:#0b1523;padding:8px;border-radius:8px">' + esc(JSON.stringify(x.args || {}, null, 1)) + '</pre>')
         + '<div class="row" style="justify-content:flex-end;gap:8px">'
         + '<button class="btn" onclick="apDecide(\'' + esc(x.id) + '\',false)">拒绝</button>'

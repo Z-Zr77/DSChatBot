@@ -88,7 +88,7 @@ try {
 
   const st = await (await fetch('http://127.0.0.1:' + LOCAL_PORT + '/work/start', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ root: WS, caps: [ 'fs:read', 'net' ], useExisting: true }),
+    body: JSON.stringify({ root: WS, mode: 'full', caps: [ 'fs:read', 'fs:write', 'exec', 'net' ], useExisting: true, confirmWrite: true }),
   })).json();
   check('工作会话带上了 net 能力', !!(st.state && st.state.caps && st.state.caps.includes('net')), JSON.stringify(st).slice(0, 200));
 

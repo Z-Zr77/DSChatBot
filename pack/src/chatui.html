@@ -880,7 +880,10 @@ function openWorkDialog(){
   mask.innerHTML = '<div style="width:520px;max-width:92vw;background:#111722;border:1px solid #2a3346;border-radius:14px;padding:16px 18px;color:#dbe3f0;font-size:13.5px">' + window.__WK_INNER + '</div>';
   document.body.appendChild(mask);
   mask.onclick = (ev) => { if (ev.target === mask) mask.remove(); };
-  window.__wkBind(mask, { api, toast, source: 'chat', onDone: () => paintWorkBar() });
+  window.__wkBind(mask, {
+    api, toast, source: 'chat', onDone: () => paintWorkBar(),
+    sendText: async (text) => api('/api/send', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) }),
+  });
 }
 const ACT_ZH = { create: '新建', overwrite: '覆盖', edit: '改了一段', mkdir: '建目录', move: '移动', copy: '复制', delete: '删到回收站', revert: '恢复' };
 function fmtTime(ms) { const d = new Date(ms || Date.now()); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }

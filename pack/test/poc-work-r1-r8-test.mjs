@@ -71,8 +71,13 @@ grants.stop(key, 'user');
 // ---------- R2：exec 必须有活动工作会话；P1-1 起提示词里明确告诉她会跑命令 ----------
 toolbox.tools.run_cmd = toolbox.tools.run_cmd || { desc: 'stub', caps: [ 'exec' ], async run() { return { ok: false, needApproval: true }; } };
 ok(api.toolCapsOk(conv, 'run_cmd', { active: false, epoch: 0 }).ok === false, 'R2 没有工作会话时 run_cmd 直接拒');
-const st2 = grants.open({ convKey: key, root: TMP, readRoots: [ TMP ], caps: [ 'fs:read', 'fs:write' ], timeoutMin: 30, inPlace: true, source: 'test' }).state;
+const st2 = grants.open({ convKey: key, root: TMP, readRoots: [ TMP ], caps: [ 'fs:read', 'fs:write', 'exec' ], timeoutMin: 30, inPlace: true, source: 'test' }).state;
 ok(api.toolCapsOk(conv, 'run_cmd', { active: true, epoch: st2.epoch, ws: { alive: true } }).ok === true, 'R2 有工作会话时放行进审批');
+// 反例（验收 L2）：会话能读能写、但没有 exec，run_cmd 必须被拒——以前这里少了授权闸门
+const noExecKey = key + '-noexec';
+const stNoExec = grants.open({ convKey: noExecKey, root: TMP, readRoots: [ TMP ], caps: [ 'fs:read', 'fs:write' ], timeoutMin: 30, source: 'test' }).state;
+ok(api.toolCapsOk(noExecKey, 'run_cmd', { active: true, epoch: stNoExec.epoch }).ok === false, 'R2 没有 exec 授权的会话不许跑命令');
+grants.stop(noExecKey, 'user');
 grants.stop(key, 'user');
 ok(bsrc.includes('- run_cmd：在工作区里跑命令'), 'R2 提示词里告诉了她能跑命令（但要审批）');
 ok(bsrc.includes('cancelApprovals(__wk)'), 'R2 停止会话会作废挂起审批');
@@ -167,7 +172,7 @@ try {
   ok(st7b.ok === false && !fs.existsSync(ghost2), 'R7b 写权限必须界面确认，且不留目录');
 
   // R8：发消息续期
-  await post('http://127.0.0.1:3691/work/start', { root: copyTo, useExisting: true, inPlace: true, caps: [ 'fs:read' ], confirmWrite: false, timeoutMin: 1 });
+  await post('http://127.0.0.1:3691/work/start', { root: copyTo, useExisting: true, inPlace: true, mode: 'read', caps: [ 'fs:read' ], timeoutMin: 1 });
   const before = (await get('http://127.0.0.1:3691/work')).work;
   await sleep(1200);
   await post('http://127.0.0.1:3691/say', { text: '在吗' });

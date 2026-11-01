@@ -190,7 +190,7 @@ t('#29 权限只在聊天窗状态条三档；弹窗固定给的读写执行能�
   // 权限只保留聊天窗状态条那一处，弹窗不再重复显示一个假的当前档
   assert.doesNotMatch(dlg, /wkModeNow/);
   assert.match(dlg, /开始工作/);
-  assert.match(dlg, /caps: \[ 'fs:read', 'fs:write', 'exec' \]/);
+  assert.match(dlg, /caps: CAPS\[__mode\] \|\| CAPS\.read/);
 });
 t('#30 settings 默认 net 是对象且开着', () => {
   const src = fs.readFileSync(new URL('../src/settings.mjs', import.meta.url), 'utf8');

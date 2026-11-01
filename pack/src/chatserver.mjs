@@ -299,7 +299,10 @@ export function startServer(port = 3210) {
         if ((p === '/api/work/start' || p === '/api/work/stop' || p === '/api/work/touch' || p === '/api/work/mode' || p === '/api/work/pick-dir' || p === '/api/work/restore' || p === '/api/work/undo') && req.method === 'POST') {
           try {
             const raw = (await body(req)).toString('utf8') || '{}';
-            const r = await upStrict(cfg, p.slice(4), { method: 'POST', headers: { 'content-type': 'application/json' }, body: raw });
+            // 选文件夹要等人在原生框里逛：桥接那边最多等 120 秒，这里必须比它久，
+            // 否则代理先超时，弹窗就把"还在选"误当成"用不了"降级成网页列表。
+            const waitMs = p === '/api/work/pick-dir' ? 150000 : 90000;
+            const r = await upStrict(cfg, p.slice(4), { method: 'POST', headers: { 'content-type': 'application/json' }, body: raw }, waitMs);
             return send(res, 200, r);
           } catch (e) { return send(res, 200, { ok: false, err: String(e.message || e) }); }
         }

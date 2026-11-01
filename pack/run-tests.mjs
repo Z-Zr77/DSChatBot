@@ -12,6 +12,7 @@ const REPO = path.resolve(HERE, '..', '..');   // 测试脚本里的 path.resolv
 const LOCK = path.join(os.tmpdir(), 'qq-bot-tests.lock');
 
 const ALL = [
+  ['poc-acceptance-fix-test', '验收六条：exec 越权 / 首条发送 / 档位 / 例子能力 / 原生框超时 / 审批超时'],
   ['poc-polish2-test', '停止报改动数 / 读宽改严 / 记忆来源与更替链'],
 
   ['poc-p1-test', '第一轮复查（路径/配置/回复定稿）'],
