@@ -1,0 +1,35 @@
+:root{--space:20px;--font:system-ui,"Microsoft YaHei",sans-serif;--line:color-mix(in srgb,var(--fg) 14%,var(--bg));--line2:color-mix(in srgb,var(--fg) 25%,var(--bg));--card2:color-mix(in srgb,var(--card) 88%,var(--fg));--acc2:var(--acc)}
+[hidden]{display:none!important}
+body{background:var(--bg);font-family:var(--font)}
+nav{background:var(--card)}nav button{color:var(--dim);border-radius:999px}
+nav button:hover{background:var(--card2);color:var(--fg)}
+nav button.on{background:#3478f6;color:#fff;box-shadow:none}nav button.on .i{color:#fff}
+.brand .logo{background:var(--card2);border-color:var(--line2)}
+.topbar{background:var(--bg)}.card{padding:var(--space);border-radius:var(--r);margin-bottom:var(--space)}
+.paneh,.sect,.prow b,.gr .lbl,.recent{color:var(--fg)}.dim,.hint,.tip{color:var(--dim)}
+input,select,textarea,.wz-l input,.wz-l select{background:var(--bg);border-color:var(--line2);color:var(--fg);font-family:var(--font)}
+input::placeholder,textarea::placeholder{color:var(--dim)}
+button.btn,button.primary{background:var(--acc);border-color:var(--acc);color:white}
+button.ghost{background:var(--card2);border-color:var(--line2);color:var(--fg)}button.ghost:hover{background:var(--line2);color:var(--fg)}
+pre,.st,.tip p,.addbar,.pill,.pricechip,.empty,.qrempty,.dd{background:var(--bg);color:var(--fg);border-color:var(--line)}
+th,tbody tr:hover td,tr:hover td,.dd .mi:hover{background:var(--card2);color:var(--fg)}
+.addbar input{background:var(--card)}.tag{background:var(--card2);color:var(--fg)}
+.scan-entry{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.scan-button{min-height:54px!important;font-size:17px!important;padding:0 30px!important}
+.scan-entry.pinned{position:sticky;top:100px;z-index:19;box-shadow:0 8px 24px #0003}
+.tabs{display:flex;gap:6px;padding:6px;background:var(--card);border:1px solid var(--line);border-radius:999px;width:fit-content;margin-bottom:18px}
+.tabs button{border:0;border-radius:999px;background:transparent;color:var(--dim);padding:9px 22px;cursor:pointer}
+.tabs button[aria-selected=true]{background:var(--acc);color:white}
+.graph-frame{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:var(--r2);background:radial-gradient(var(--line2) 1px,transparent 1px) 0 0/22px 22px}
+#memGraph{display:block;width:100%;height:clamp(360px,56vh,640px);touch-action:none;cursor:grab}
+#memGraph:active{cursor:grabbing}
+#memGraph line{stroke:var(--dim);stroke-width:2}#memGraph line[data-edge=cause]{stroke:var(--acc);stroke-dasharray:7 5}
+.memory-node{cursor:pointer;outline:none}.memory-node circle{fill:var(--card2);stroke:var(--acc);stroke-width:2}
+.memory-node:hover circle,.memory-node:focus circle{stroke-width:4}.memory-node.stale{opacity:.55}
+.memory-node text{font-size:12px;fill:var(--fg);pointer-events:none}.memory-node .node-caption{font-size:13px}
+.graph-empty{position:absolute;inset:45% 10% auto;text-align:center;pointer-events:none}
+#memDetail{position:absolute;top:12px;right:12px;width:min(320px,90%);max-height:90%;overflow:auto;box-shadow:0 8px 30px #0003;overflow-wrap:anywhere}
+.theme-colors{display:flex;flex-wrap:wrap;gap:18px;margin:16px 0}.theme-colors label{display:flex;align-items:center;gap:10px}.theme-colors input{width:54px;padding:3px}
+#themeRadius{width:100%;max-width:300px}.theme-colors input,.tabs button{min-height:38px}
+#cfgBox>.row{gap:10px;align-items:center}#cfgBox>.row>input{min-width:140px}#cfgBox .sect{font-size:15px;margin-top:28px}
+@media(max-width:820px){.scan-entry.pinned{top:64px}.wrap{padding-left:0;padding-right:0}.tabs{max-width:100%}.tabs button{padding:9px 15px}#cfgBox>.row>span:first-child{width:100%!important}#cfgBox p,#cfgBox>.row,#cfgBox #dKey{margin-left:0!important}#cfgBox input,#cfgBox select{max-width:100%}#memGraph{height:390px}}

@@ -47,7 +47,7 @@ import * as apibrain from './apibrain.mjs';
 import { PATHS, loadSetup } from './paths.mjs';
 import * as chatlog from './chatlog.mjs';
 import * as notify from './notify.mjs';
-import { looksVision } from './capability.mjs';
+import { resolveVision } from './capability.mjs';
 // NapCat 主机（可配：跑在同一台机器就是 127.0.0.1）
 const napHost = () => {
   if (process.env.QQBOT_NAPCAT_HOST) return String(process.env.QQBOT_NAPCAT_HOST).trim();
@@ -2324,34 +2324,11 @@ function visionFallbackAllowed() {
 
 async function describeBuffer(buf, prompt) {
   const mime = sniffMime(buf);
-  // 看图用哪个模型，优先级：
-  //   1) 设置里单独配了视觉模型/地址 → 用它
-  //   2) 大脑模型本身能看图（qwen-vl / glm-4v / gpt-4o / gemini …）→ 直接沿用大脑，不用再配
-  //   3) 大脑看不了图，但本地有百炼 key → 自动套 qwen3-vl-plus 兜底
-  //   4) 都没有 → 明确报错，让用户去设置里配
-  const vc = settings.load().vision || {};
+  // 大脑支持图片时跟大脑；否则保留单独接口与受开关控制的兜底。
   const api = apibrain.load() || {};
-  const ali = aliyunKey();
-  const brainModel = String(api.model || "");
-  const brainBase = String(api.baseUrl || "").replace(/\/+$/, "");
-  const custom = !!(vc.baseUrl || vc.model);
-  let baseUrl, model, key;
-  if (custom) {
-    baseUrl = String(vc.baseUrl || brainBase || "").replace(/\/+$/, "");
-    model = String(vc.model || brainModel || "");
-    key = String(vc.key || api.key || "");
-  } else if (looksVision(brainModel)) {
-    baseUrl = brainBase || "https://api.deepseek.com/v1";
-    model = brainModel;
-    key = String(api.key || process.env.DEEPSEEK_API_KEY || "");
-  } else if (ali) {
-    baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
-    if (!visionFallbackAllowed()) throw new Error('大脑模型看不了图，且已关闭视觉自动降级（设置 → 看图）');
-    model = "qwen3-vl-plus";
-    key = ali;
-  } else {
-    throw new Error("看图没有可用模型：大脑用的 " + (brainModel || "未知模型") + " 不支持图片输入，也没找到百炼 key。请在设置→看图里填一个视觉模型。");
-  }
+  const chosen = resolveVision(api, settings.load().vision || {}, aliyunKey(), visionFallbackAllowed());
+  if (chosen.mode === 'none') throw new Error('看图没有可用模型：请在设置 → 看图里配置视觉模型，或开启视觉自动降级。');
+  const { baseUrl, model, key } = chosen;
   const body = {
     model,
     max_tokens: 160,

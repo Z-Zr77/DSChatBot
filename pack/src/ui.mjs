@@ -19,6 +19,7 @@ import * as memory from './memory.mjs';
 import * as lessons from './lessons.mjs';
 import * as skills from './skills.mjs';
 import * as budget from './budget.mjs';
+import { looksVision, resolveVision } from './capability.mjs';
 import { PATHS, loadSetup, saveSetup, APP } from './paths.mjs';
 import { testKey } from './brain.mjs';
 import { ensurePersonaFile, setPersonaRelationship, cleanRelationship, relationshipOf } from './persona-default.mjs';
@@ -1094,7 +1095,9 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     }
 
-    if (p === '/') return send(res, 200, HTML.replace('__WK_SCRIPT__', workdialog.bootstrap()));
+    if (p === '/') return send(res, 200, HTML.replace('__WK_SCRIPT__', workdialog.bootstrap())
+      .replace('__CONSOLE_LAYOUT__', () => fs.readFileSync(path.join(SRC_DIR, 'console-layout.js'), 'utf8'))
+      .replace('__CONSOLE_STYLE__', () => fs.readFileSync(path.join(SRC_DIR, 'console-layout.css'), 'utf8')));
 
     if (p === '/api/app/restart' && req.method === 'POST') {
       send(res, 200, { ok: true, restarting: true });
@@ -1352,14 +1355,12 @@ const server = http.createServer(async (req, res) => {
         const f = self.refFile();
         if (!f) return send(res, 400, { ok: false, err: '先上传一张参考图' });
         const vc = settings.load().vision || {};
-        const api0 = apibrain.load() || {};
+        const api0 = loadSetup().api || apibrain.load() || {};
         let aliKey = '';
         try { const kp = path.join(PATHS.data, 'aliyun.key'); if (fs.existsSync(kp)) aliKey = String(fs.readFileSync(kp, 'utf8')).trim(); } catch {}
-        const autoBase = String(vc.baseUrl || api0.baseUrl || '').replace(/\/+$/, '');
-        const useAli = !vc.baseUrl && !vc.model && !!aliKey && (!autoBase || /deepseek\.com/i.test(autoBase));
-        const baseUrl = useAli ? 'https://dashscope.aliyuncs.com/compatible-mode/v1' : (autoBase || 'https://api.deepseek.com/v1');
-        const model = useAli ? 'qwen3-vl-plus' : String(vc.model || api0.model || 'deepseek-chat');
-        const key = useAli ? aliKey : String(vc.key || api0.key || '');
+        const chosen = resolveVision(api0, vc, aliKey || process.env.DASHSCOPE_API_KEY || '', (settings.load().fallback || {}).vision !== false);
+        if (chosen.mode === 'none') return send(res, 400, { ok: false, err: '请先在设置 → 看图里配置可用模型' });
+        const { baseUrl, model, key } = chosen;
         const ext = path.extname(f).toLowerCase();
         const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
         const b64 = fs.readFileSync(f).toString('base64');
@@ -1677,29 +1678,18 @@ const server = http.createServer(async (req, res) => {
     // 看图能力自检：大脑模型能不能看图？不能的话有没有兜底？
     if (p === '/api/vision/info') {
       try {
-        const cfgS = settings.load();
-        const vc = cfgS.vision || {};
-        const brainApi = loadSetup().api || {};
-        const { looksVision } = await import('./capability.mjs');
-        const custom = !!(vc.baseUrl || vc.model);
-        const brainOk = looksVision(brainApi.model);
-        let aliok = false;
-        try { aliok = !!String(fs.readFileSync(path.join(PATHS.data, 'aliyun.key'), 'utf8')).trim(); } catch {}
-        let mode, model, note;
-        if (custom) {
-          mode = 'custom'; model = vc.model || '(沿用大脑)';
-          note = '已单独配置，图片都走这个模型';
-        } else if (brainOk) {
-          mode = 'brain'; model = brainApi.model;
-          note = '大脑模型本身支持看图，不用再配';
-        } else if (aliok) {
-          mode = 'fallback'; model = 'qwen3-vl-plus';
-          note = '大脑模型 ' + (brainApi.model || '') + ' 看不了图，会自动用百炼 qwen3-vl-plus（用的是 data\\aliyun.key）';
-        } else {
-          mode = 'none'; model = '';
-          note = '大脑模型 ' + (brainApi.model || '') + ' 不支持图片输入，也没有百炼 key —— 这里必须填一个能看图的模型';
-        }
-        send(res, 200, { mode, model, note, brainModel: brainApi.model, aliok });
+        const cfgS = settings.load(), brainApi = loadSetup().api || {};
+        let aliKey = '';
+        try { aliKey = String(fs.readFileSync(path.join(PATHS.data, 'aliyun.key'), 'utf8')).trim(); } catch {}
+        aliKey = aliKey || process.env.DASHSCOPE_API_KEY || '';
+        const chosen = resolveVision(brainApi, cfgS.vision || {}, aliKey, (cfgS.fallback || {}).vision !== false);
+        const notes = {
+          brain: '大脑支持看图，图片跟随大脑；单独接口保留供切回纯文本大脑时使用',
+          custom: '大脑不能看图，使用单独配置的视觉接口',
+          fallback: '大脑不能看图，已启用百炼视觉兜底',
+          none: '大脑不能看图，请配置一个视觉接口'
+        };
+        send(res, 200, { mode: chosen.mode, model: chosen.model, note: notes[chosen.mode], brainModel: brainApi.model, brainOk: looksVision(brainApi.model), aliok: !!aliKey });
       } catch (e) { send(res, 500, { err: (e && e.message) || String(e) }); }
       return;
     }
@@ -2359,36 +2349,50 @@ th{background:#30232b;color:#dcc4d0;font-size:12px;padding:12px;text-align:left}
 .empty,.qrempty{line-height:1.9;max-width:100%;overflow-wrap:anywhere}
 button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--acc2);outline-offset:3px}
 @media(max-width:900px){.wrap{padding:16px 18px 0}.topbar{padding:18px}.card{padding:18px}.topbar h1{font-size:21px}}
+__CONSOLE_STYLE__
 </style></head><body>
 <nav>
   <div class="brand"><span class="logo">🐟</span><div><b>大肥鱼</b><i>DSCHAT CONSOLE</i></div></div>
   <button data-t="overview" class="on"><span class="i">◎</span>概览</button>
-  <button data-t="her"><span class="i">✎</span>她</button>
+  <button data-t="log"><span class="i">≡</span>日志</button>
+  <button data-t="her"><span class="i">✎</span>人设</button>
   <button data-t="memory"><span class="i">✦</span>记忆</button>
   <button data-t="money"><span class="i">￥</span>花费</button>
   <button data-t="config"><span class="i">⚙</span>设置</button>
+  <button data-t="theme"><span class="i">◐</span>主题</button>
 </nav>
 <main>
 <div id="apBox" style="display:none;position:fixed;top:14px;right:16px;width:390px;max-height:72vh;overflow:auto;background:#101a2b;border:1px solid #3d5a86;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.55);z-index:60;color:#dbe6fa"></div>
 <div class="topbar"><div><h1 id="pgTitle">概览</h1><p class="sub" id="pgSub">她连上没有、今天花了多少、要不要重启</p></div></div>
 <div class="wrap">
 <section id="overview" class="on">
+  <div class="card scan-entry" id="scanEntry">
+    <button class="btn scan-button" onclick="showQqScan()">扫码登录 QQ</button>
+    <button class="ghost" id="qrPin" aria-pressed="false" onclick="toggleQrPin()">固定扫码入口</button>
+    <span id="qqSummary" class="dim"></span>
+  </div>
   <div id="qrSlot"></div>
   <div id="statusBox"></div>
-  <div style="margin-top:12px"><button class="ghost btn" id="advBtn" onclick="toggleAdv()">显示更多：最近日志、备份、授权码、人物</button></div>
-  <div class="card advonly" style="margin-top:14px;display:none">
-    <div class="row" style="justify-content:space-between"><b>最近发生的事</b>
-      <button class="ghost btn" onclick="loadRecent()">刷新</button></div>
-    <pre id="recentPre" class="recent">读取中…</pre>
-  </div>
+  <div class="card"><div class="toolbar"><b>最近发生的事</b><span class="spacer"></span>
+    <button class="ghost" onclick="goPage('log')">看全部 →</button></div>
+    <div id="recentSummary" class="recent">读取中…</div></div>
+  <button class="ghost" id="advBtn" onclick="toggleAdv()">更多：备份、删除授权码、人物状态</button>
+</section>
+
+<section id="log">
+  <div class="card"><div class="toolbar"><b>最近发生的事</b><span class="spacer"></span><button class="ghost" onclick="loadRecent()">刷新</button></div>
+    <div id="recentPre" class="recent">读取中…</div></div>
+  <div class="card"><div class="toolbar"><b>运行日志</b><span class="spacer"></span><button class="ghost" onclick="loadLog()">刷新</button></div>
+    <pre id="logPre">读取中…</pre></div>
+  <details class="card"><summary>QQ 内核日志</summary><pre id="kernelLog">暂无日志</pre></details>
 </section>
 
 <section id="her">
-  <h3 class="paneh">她是谁</h3>
+  <h3 class="paneh">人物形象</h3>
 <div class="pane" id="persona">
-  <div class="card"><div class="row" style="justify-content:space-between"><b>她的样子</b>
+  <div class="card"><div class="row" style="justify-content:space-between"><b>人物形象</b>
     <span class="dim" id="sfState"></span></div>
-    <p class="dim">放一张她的图（三视图最好），再写一段长相描述。她会知道自己长什么样；自己画图、发“自拍”时都按这段描述出图。</p>
+    <p class="dim">上传参考图后自动描述样貌。检查并保存描述后，画图和自拍会沿用这些特征。</p>
     <div class="row" style="align-items:flex-start;gap:16px">
       <div style="flex:0 0 auto">
         <div id="sfPreview" class="dim" style="width:200px;height:200px;border:1px dashed #333a45;border-radius:10px;display:flex;align-items:center;justify-content:center;overflow:hidden">还没有图</div>
@@ -2403,10 +2407,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
       </div>
     </div>
   </div>
-  <div class="card"><b>称呼门槛</b>
-<p class="dim">她叫你亲昵称呼时，亲密度低于这个数就只记一笔日志（不拦）。到线后才算自然。</p>
-<div class="row"><label>亲密度门槛</label><input type="number" min="0" max="100" data-p="addr.ownerCloseAt"><span class="dim">0-100</span></div></div>
-<div class="card"><div class="row" style="justify-content:space-between"><b>persona.md</b>
+<div class="card"><div class="row" style="justify-content:space-between"><b>人格提示词</b>
     <div class="row"><span class="dim" id="pState"></span><button class="btn" onclick="savePersona()">保存</button></div></div>
     <p class="dim">改完保存，下一条消息就生效（不用重启）。</p>
     <textarea id="personaText" style="height:320px"></textarea></div>
@@ -2417,33 +2418,37 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
     <p class="dim">标签是给她看的关键词：她会按情绪挑。改完自动保存。</p>
     <div class="grid" id="skGrid"></div></div>
 </div>
-  <h3 class="paneh">她自己想聊什么</h3>
-<div class="pane" id="interests">
-  <div class="card"><div class="row" style="justify-content:space-between"><b>她感兴趣的事</b><button class="btn" onclick="saveInterests()">保存</button></div>
-    <p class="dim">每行一条；她上网时按这些找东西看。</p>
-    <textarea id="intTopics" style="min-height:160px"></textarea>
-    <div class="row" style="margin-top:10px"><span class="dim">每天最多看</span><input id="intMax" type="number" style="width:90px"><span class="dim">次</span></div>
-    <div class="row" style="margin-top:10px"><span class="dim">最近看到</span></div>
-    <div id="seenBox" class="dim" style="font-size:12px;line-height:1.7"></div></div>
-</div>
 </section>
 
 <section id="memory">
-<div class="pane" id="memPane">
-  <div class="card"><div class="toolbar">
-    <b>记忆</b><select id="memWho" class="w200" onchange="loadMem();paintOwnerTag(S)"></select>
-    <span class="warnchip" id="memOwnerTag" style="display:none">主人号 · 删除要授权码</span>
-    <span class="spacer"></span>
-    <button class="danger btn" onclick="dropPerson()">删除这个号</button>
-    <button class="btn" onclick="pruneEmpty()">清理空记忆</button>
+  <div class="toolbar"><label for="memWho">记住了谁</label><select id="memWho" class="w200" onchange="loadMem();paintOwnerTag(S)"></select>
+    <span class="warnchip" id="memOwnerTag" style="display:none">主人号 · 删除要授权码</span></div>
+  <div class="tabs" role="tablist" aria-label="记忆内容">
+    <button id="tab-mem" role="tab" aria-selected="true" aria-controls="memPane" onclick="memoryTab('memPane')">记忆</button>
+    <button id="tab-lessons" role="tab" aria-selected="false" aria-controls="lessonsPane" tabindex="-1" onclick="memoryTab('lessonsPane')">经验库</button>
+    <button id="tab-skills" role="tab" aria-selected="false" aria-controls="skillsPane" tabindex="-1" onclick="memoryTab('skillsPane')">技能记录</button>
   </div>
-    <p class="dim" style="margin:0 0 10px">删主人号要用「状态」页的一次性授权码：6 位数字、5 分钟有效、用一次即废 —— 忘了也不会把自己锁在外面。</p>
-    <details class="tip"><summary>强度是怎么算的？</summary><p class="dim">基础权重 0.1–3，新记忆从 1 起步，被提到 +0.5（封顶 3）。当前强度 = 权重 × 0.5^(未提及天数 / 半衰期)：事实 45 天、琐事 14 天减半；核心恒为 99、不衰减。改完点「存」，下一条消息生效。</p></details>
-    <div class="addbar">
-      <input id="memText" placeholder="要记住的事（例：他下周三面试）">
-      <label class="sw"><input type="checkbox" id="memCore"> 核心</label>
-      <button class="btn" onclick="addMem()">添加</button></div>
-    <table id="memTable"></table></div>
+  <div id="memPane" role="tabpanel" aria-labelledby="tab-mem">
+    <div class="card">
+      <div class="toolbar"><b>记忆关系</b><span class="spacer"></span><button class="ghost" id="memViewBtn" onclick="toggleMemoryView()">列表编辑</button></div>
+      <div id="memGraphView">
+        <div class="toolbar"><span class="hint">拖动节点或空白处 · 滚轮缩放 · 点击节点查看详情</span><span class="spacer"></span>
+          <button class="ghost" aria-label="放大图谱" onclick="zoomMemory(1.25)">＋</button><button class="ghost" aria-label="缩小图谱" onclick="zoomMemory(0.8)">－</button><button class="ghost" onclick="fitMemory()">适应画布</button></div>
+        <div class="graph-frame"><svg id="memGraph" viewBox="0 0 1000 600" aria-label="记忆关系图"></svg>
+          <div id="memGraphEmpty" class="graph-empty dim"></div>
+          <aside id="memDetail" class="card" hidden><button class="ghost" onclick="closeMemoryDetail()">关闭详情</button><p id="memDetailText"></p><p id="memDetailMeta" class="dim"></p><button class="btn" onclick="editSelectedMemory()">编辑这条</button></aside></div>
+        <p class="hint">大节点为核心记忆。实线：旧说法 → 修正；虚线：原因 → 结果。只显示已记录的关系，无关系的节点独立显示。</p>
+      </div>
+      <div id="memListView" hidden>
+        <div class="toolbar"><button class="danger" onclick="dropPerson()">删除这个号</button><button class="ghost" onclick="pruneEmpty()">清理空记忆</button></div>
+        <p class="dim">删除主人号需要「概览 → 更多」中的一次性删除授权码。</p>
+        <div class="addbar"><input id="memText" placeholder="要记住的事"><label class="sw"><input type="checkbox" id="memCore">核心</label><button class="btn" onclick="addMem()">添加</button></div>
+        <p class="hint">基础权重 0.1–3；事实 45 天、琐事 14 天减半；核心不衰减。改完点「存」。</p>
+        <table id="memTable"></table>
+      </div>
+    </div>
+  </div>
+  <div id="lessonsPane" role="tabpanel" aria-labelledby="tab-lessons" hidden>
   <div class="card"><div class="row" style="justify-content:space-between"><b>她学到的（经验库）</b>
     <span class="dim" id="lsStat"></span>
     <span class="spacer"></span>
@@ -2451,13 +2456,15 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
     <button class="danger btn" onclick="clearLessons()">清空</button></div>
     <p class="dim">他夸一句、还是嫌烦，都会记一条。下次遇到类似的场景，她照着"受用"的那次说；不相干的不硬套。</p>
     <div id="lsList" class="dim">还没有学到东西（他夸她一次，这里就会出现）</div></div>
+  </div>
+  <div id="skillsPane" role="tabpanel" aria-labelledby="tab-skills" hidden>
   <div class="card"><div class="row" style="justify-content:space-between"><b>技能记录（工具用得怎么样）</b>
     <span class="dim" id="skStat2"></span>
     <span class="spacer"></span>
     <button class="btn" onclick="loadSkills()">刷新</button></div>
     <p class="dim">她调过的工具、成没成、错在哪。失败过的，下次会换个法子。</p>
     <div id="skList" class="dim">还没有调用记录</div></div>
-</div>
+  </div>
 </section>
 
 <section id="money">
@@ -2483,248 +2490,58 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 </section>
 
 <section id="config">
-  <h3 class="paneh">账号与通道</h3>
-<div class="pane" id="config">
-    
-
   <div class="card" id="cfgBox"></div>
-
-    <div class="card" style="margin-top:14px">
-      <h2>手机访问</h2>
-      <p class="dim" style="margin:0 0 8px">打开后，手机浏览器输入 <code>http://电脑IP:3070</code> 就能用同一个控制台（手机和电脑要连同一个 Wi-Fi）。<b>改完要重启程序才生效。</b></p>
-      <div class="gr"><span class="lbl">允许手机访问</span>
-        <label class="dim"><input type="checkbox" data-cb="ui.lan" style="width:auto"> 开启（监听 0.0.0.0）</label>
-        <span class="hint">开启后必须输密码；只在内网可见，不暴露到公网</span></div>
-      <div class="gr"><span class="lbl">访问密码</span>
-        <input data-p="ui.pass" placeholder="留空 = 自动生成 6 位数字并写进配置">
-        <span class="hint">第一次开启留空即可；程序会把生成的密码打印在启动日志里，也会显示在「状态」页</span></div>
-      <div class="row" style="margin-top:8px"><span class="dim">用 DSChat App 填写上面的地址与密码即可连接（App 右上角 ⚙ → 服务器地址）。浏览器页面已下线。</span></div>
-    </div>
-
-    <div class="card" style="margin-top:14px" id="guardCard">
-      <h2>手机推送（锁屏也能收到）</h2>
-      <div class="hint">她在软件里说话时，推一条到你手机。推荐 ntfy：手机装 ntfy App、订阅下面这个主题即可，不用注册。</div>
-      <div class="gr"><span class="lbl">通道</span>
-        <select data-p="notify.channel">
-          <option value="off">关闭</option>
-          <option value="ntfy">ntfy（免费、开源）</option>
-          <option value="wecom">企业微信群机器人</option>
-          <option value="dingtalk">钉钉群机器人</option>
-          <option value="bark">Bark（iPhone）</option>
-        </select></div>
-      <div class="gr"><span class="lbl">服务器 / Webhook</span>
-        <input data-p="notify.url" placeholder="ntfy 留空=https://ntfy.sh；企业微信/钉钉填完整 webhook；Bark 填 https://api.day.app"></div>
-      <div class="gr"><span class="lbl">主题 / 密钥</span>
-        <input data-p="notify.topic" placeholder="ntfy 填主题名（自己起，如 dafeiyu-9f3a）；Bark 填 key"></div>
-      <div class="gr"><span class="lbl">什么时候推</span>
-        <select data-p="notify.when">
-          <option value="local">只在软件里聊天时（QQ 有自己的推送）</option>
-          <option value="all">全部（含 QQ 通道）</option>
-        </select></div>
-      <div class="row"><button class="ghost" onclick="testNotify(this)">发一条测试推送</button></div>
-      <h2>QQ 接入</h2>
-      <p class="dim" style="margin:0 0 8px">关掉后：不登录 QQ、不刷新二维码、守护也不去重启内核。<b>只保留软件里聊天</b>（DSChat 和手机端照常用）。</p>
-      <div class="gr"><span class="lbl">启用 QQ 接入</span>
-        <label class="dim"><input type="checkbox" data-cb="qq.enabled" style="width:auto"> 开启（关掉 = 状态页不显示扫码）</label>
-        <span class="hint">想重新接 QQ 时勾上，保存后点「立即换一张」或托盘「重启 QQ 内核」</span></div>
-      <h2>行为底线（写死在代码里）</h2>
-      <p class="dim" style="margin:0 0 8px">这几项不靠人格提示词，由代码在发出前校验：<b>和事实冲突时自动重写一次；还不合格就换成一句不撒谎的兜底话</b>。</p>
-      <div class="gr"><span class="lbl">总开关</span>
-        <label class="dim"><input type="checkbox" data-cb="norms.enabled" style="width:auto"> 开启</label>
-        <span class="hint">关掉后她可能说出与时间/身体/归属矛盾的话</span></div>
-      <div class="gr"><span class="lbl">时间逻辑</span>
-        <label class="dim"><input type="checkbox" data-cb="norms.time" style="width:auto"> 校验</label>
-        <span class="hint">晚上不能说"早上好"、下午不能说"这么晚了"、钟点对不上会重写</span></div>
-      <div class="gr"><span class="lbl">身体状态</span>
-        <label class="dim"><input type="checkbox" data-cb="norms.body" style="width:auto"> 校验</label>
-        <span class="hint">洗没洗澡、吃没吃饭，不许前后反口</span></div>
-      <div class="gr"><span class="lbl">身份归属</span>
-        <label class="dim"><input type="checkbox" data-cb="norms.owner" style="width:auto"> 校验</label>
-        <span class="hint">她自己做过的事，不许反问成"你做了吗"</span></div>
-      <div class="gr"><span class="lbl">记忆细节</span>
-        <label class="dim"><input type="checkbox" data-cb="norms.memory" style="width:auto"> 校验</label>
-        <span class="hint">说不出具体分钟/金额/菜名时，要求改口"记不清"，不许编</span></div>
-
-      <div class="gr"><span class="lbl">日程/位置</span>
-        <label class="dim"><input type="checkbox" data-cb="norms.schedule" style="width:auto"> 校验</label>
-        <span class="hint">在家却说在外面、非睡觉时间说刚睡醒、手头做的事对不上</span></div>
-      <div class="gr"><span class="lbl">关系尺度</span>
-        <label class="dim"><input type="checkbox" data-cb="norms.relation" style="width:auto"> 校验</label>
-        <span class="hint">不够熟不许喊老公/宝贝；很熟了也不许说"你谁啊"</span></div>
-      <div class="gr"><span class="lbl">群聊边界</span>
-        <label class="dim"><input type="checkbox" data-cb="norms.social" style="width:auto"> 校验</label>
-        <span class="hint">群里不说私密话题、不暴露主人的名字/公司/住址</span></div>
-      <div class="gr"><span class="lbl">防复读</span>
-        <label class="dim"><input type="checkbox" data-cb="norms.repeat" style="width:auto"> 校验</label>
-        <span class="hint">和上一句几乎一样时要求换个说法</span></div>
-
-      <h2>内核守护</h2>
-      <p class="dim" style="margin:0 0 8px">守护会在 QQ 掉线时自动重启内核、二维码过期时自动换码。<b>频繁重启/换码会被 QQ 判成异常登录</b>（风控期尤其明显）。</p>
-      <div class="gr"><span class="lbl">允许自动重启 / 自动换码</span>
-        <label class="dim"><input type="checkbox" data-cb="guard.auto" style="width:auto"> 开启（关掉 = 只监视，不动手）</label>
-        <span class="hint">关掉后：掉线只记录状态，二维码也不自动换；换成你手动点「立即换一张」/ 托盘「重启 QQ 内核」</span></div>
-    </div>
-
-    <div class="card" style="margin-top:14px">
-      <h2>自动降级</h2>
-      <p class="dim" style="margin:0 0 10px">失败时要不要自己换条路走。<b>关掉就是只用你指定的</b>，出问题直接报错，不会偷偷换个模型把画风/语气带偏。只有费用超预算时会强制降档，不受这里影响。</p>
-      <div class="gr"><span class="lbl">聊天（大脑）</span><label class="sw"><input type="checkbox" data-cb="fallback.chat"><span>主模型失败时，允许回落默认地址/模型</span></label></div>
-      <div class="gr"><span class="lbl">看图</span><label class="sw"><input type="checkbox" data-cb="fallback.vision"><span>大脑不能看图时，允许自动套百炼 qwen-vl 兜底</span></label></div>
-      <div class="gr"><span class="lbl">画图</span><label class="sw"><input type="checkbox" data-cb="fallback.draw"><span>允许在她指定的后端里换备用模型（<b>默认关</b>：指定火山就只走火山）</span></label></div>
-      <div class="gr"><span class="lbl">语音识别</span><label class="sw"><input type="checkbox" data-cb="fallback.asr"><span>识别失败时允许换备用后端</span></label></div>
-      <div class="gr"><span class="lbl">语音合成</span><label class="sw"><input type="checkbox" data-cb="fallback.tts"><span>云端合成失败时，允许退回免费 edge 语音</span></label></div>
-    </div>
-
-    <div class="card" style="margin-top:14px">
-      <h2>运行细节</h2>
-      <p class="dim" style="margin:0 0 8px">这些以前写死在代码里，现在你可以调。改完点保存，下一条消息生效。</p>
-      <div class="gr"><span class="lbl">私聊打字延迟</span><input type="number" step="100" min="0" max="60000" data-p="reply.privateDelayMs"><span class="hint">毫秒。她收到消息后故意等这么久再发（2000 = 2 秒）</span></div>
-      <div class="gr"><span class="lbl">群聊打字延迟</span><input type="number" step="100" min="0" max="60000" data-p="reply.groupDelayMs"><span class="hint">毫秒。群聊里一般比私聊慢一点</span></div>
-      <div class="gr"><span class="lbl">聊天原文窗口</span><input type="number" step="10" min="10" max="400" data-p="memory.logKeep"><span class="hint">行。每轮带多少行最近原文进上下文；越大越连贯、越费 token</span></div>
-      <div class="gr"><span class="lbl">事实记忆半衰期</span><input type="number" step="1" min="1" max="3650" data-p="memory.halfLifeFact"><span class="hint">天。没再提到的"事实"多久强度减半</span></div>
-      <div class="gr"><span class="lbl">琐事记忆半衰期</span><input type="number" step="1" min="1" max="3650" data-p="memory.halfLifeTrivia"><span class="hint">天。闲聊里的"琐事"多久强度减半</span></div>
-      <div class="gr"><span class="lbl">NapCat 主机</span><input data-p="napcat.host" placeholder="127.0.0.1"><span class="hint">跑在同一台机器就填 127.0.0.1；搬到别的机器改成它的 IP（改完要重启桥接）</span></div>
-      <div class="gr wide"><span class="lbl">戳一戳回什么</span><textarea data-p="talk.pokeLines" rows="3" placeholder="一行一句"></textarea><span class="hint">被她戳时随机挑一句；一行一句</span></div>
-      <div class="gr wide"><span class="lbl">兜底日程</span><textarea data-p="talk.fallbackPlan" rows="4" placeholder="12:30 卧室｜刚起来"></textarea><span class="hint">生成日程失败时才会用；格式「HH:MM 地点｜在做什么」</span></div>
-      <div class="gr wide"><span class="lbl">她自己消遣池</span><textarea data-p="talk.lifePool" rows="4" placeholder="一行一件小事"></textarea><span class="hint">没排日程时，她从这些里挑一件"正在干的事"</span></div>
-    </div>
-
-    <div class="card" style="margin-top:14px">
-      <h2>出图提示词</h2>
-      <p class="dim" style="margin:0 0 8px">画她、画场景都按这里来。不满意直接改文字，改完保存，下一张就按新写法来。</p>
-      <div class="gr"><span class="lbl">画风</span>
-        <select data-p="drawStyle">
-          <option value="anime">二次元插画</option>
-          <option value="semi">半写实轻小说</option>
-          <option value="real">写实摄影</option>
-          <option value="custom">自定义（用下面的"画风描述"）</option>
-        </select>
-        <span class="hint">前三项是内置写法；选"自定义"就完全用下面那段文字</span></div>
-      <div class="gr wide"><span class="lbl">画风描述</span><textarea data-p="prompts.style" rows="2"></textarea><span class="hint">一句话定整体风格（线条、上色、质感）</span></div>
-      <div class="gr wide"><span class="lbl">自拍视角</span><textarea data-p="prompts.selfie" rows="3"></textarea><span class="hint">她自拍时的机位与构图。写太多"不要"有时会反向放大，尽量用正向描述</span></div>
-      <div class="gr wide"><span class="lbl">全身照视角</span><textarea data-p="prompts.selfieFull" rows="3"></textarea><span class="hint">她要全身照时用这段（说“站起来/全身/穿搭/鞋子”会自动切过来）</span></div>
-          <div class="gr wide"><span class="lbl">自拍禁止项</span><textarea data-p="prompts.selfieBan" rows="3"></textarea><span class="hint">画面里不许出现的东西（手机、边框、拼图、畸形手…）</span></div>
-      <div class="gr wide"><span class="lbl">参考图规则</span><textarea data-p="prompts.ref" rows="3"></textarea><span class="hint">告诉她"参考图只是设定稿，别照抄三视图/白底/立绘"</span></div>
-      <div class="gr wide"><span class="lbl">场景补充</span><textarea data-p="prompts.scene" rows="2"></textarea><span class="hint">画房间/街景时的补充要求（生活痕迹、光线）</span></div>
-      <div class="gr wide"><span class="lbl">场景禁止项</span><textarea data-p="prompts.sceneBan" rows="2"></textarea><span class="hint">场景图里不许出现的东西（人、文字、水印…）</span></div>
-      <div class="row" style="margin-top:8px"><button class="ghost btn" onclick="resetPrompts()">恢复默认文案</button></div>
-    </div>
-  
-</div>
-  <h3 class="paneh">群聊</h3>
-<div class="pane" id="groups">
-  <div class="card">
-    <div class="cardhead">
-      <h2>群聊</h2>
-      <span id="gMsg" class="hint"></span>
-      <span class="spacer"></span>
-      <button class="primary" onclick="saveCfg()">保存</button>
-    </div>
-    <p class="dim" style="margin:0 0 8px">她在群里怎么说话。改完点保存，下一条群消息就生效。</p>
-
-    <div class="gr"><span class="lbl">启用群聊</span>
-      <label class="sw"><input type="checkbox" data-cb="groups.enabled" checked><span>在群里说话</span></label>
-      <span class="hint"></span></div>
-
-    <div class="gr"><span class="lbl">只认叫名字</span>
-      <label class="sw"><input type="checkbox" data-cb="groups.needCall" checked><span>要叫她或 @ 她才理</span></label>
-      <span class="hint">关掉 = 群里说什么都可能接</span></div>
-
-    <div class="gr"><span class="lbl">她叫什么</span>
-      <input data-p="names" placeholder="大肥鱼,肥鱼,小鱼,鱼宝">
-      <span class="hint">群里叫这些名字都算叫她（人格里写的名字会自动认）</span></div>
-
-    <div class="gr"><span class="lbl">对群友</span>
-      <select data-p="groups.spicy"><option value="0">温和</option><option value="1">正常</option><option value="2">毒舌</option></select>
-      <span class="hint">对主人永远温柔，这里只对群里其他人</span></div>
-
-    <div class="gr"><span class="lbl">续聊窗口</span>
-      <input type="number" data-p="groups.followMin">
-      <span class="hint">分钟。叫过她之后，这个群还能接着聊多久；0 = 每条都要叫</span></div>
-
-    <div class="gr"><span class="lbl">续聊她自己定</span>
-      <label class="sw"><input type="checkbox" data-cb="groups.followAuto"><span>接不接由她判断</span></label>
-      <span class="hint">关掉 = 窗口内每句都回</span></div>
-
-    <div class="gr"><span class="lbl">连着发时等几秒</span>
-      <input type="number" step="1" min="0" max="60" data-p="groups.joinSec">
-      <span class="hint">对方连发几条时先攒一下，让她当一段话回（0 = 一条一句）</span></div>
-
-    <div class="gr"><span class="lbl">一轮最多合并</span>
-      <input type="number" step="1" min="1" max="20" data-p="groups.maxJoin">
-      <span class="hint">条，攒满就不等了，马上处理</span></div>
-
-    <div class="gr"><span class="lbl">被叫时补上文</span>
-      <input type="number" step="1" min="0" max="30" data-p="groups.recallCount">
-      <span class="hint">条。隔太久没聊时，把前面这些条群消息也给她看，别让她接不上话（0 = 不补）</span></div>
-    <div class="gr"><span class="lbl">发言间隔</span>
-      <input type="number" data-p="groups.gapSec">
-      <span class="hint">秒。她说完一句后，至少隔这么久才接下一句</span></div>
-
-    <div class="gr"><span class="lbl">一轮最多说</span>
-      <input type="number" data-p="groups.maxChain">
-      <span class="hint">句，说满自动重新开一轮（防刷屏）</span></div>
-
-    <div class="gr"><span class="lbl">群聊每天最多花</span>
-      <input type="number" data-p="groups.dayCap">
-      <span class="hint">元（0 = 不限）</span></div>
-
-    <div class="gr"><span class="lbl">群聊每月最多花</span>
-      <input type="number" data-p="groups.monthCap">
-      <span class="hint">元（0 = 不限）</span></div>
-
-    <div class="gr note"><span class="lbl">额度用完了</span>
-      <span class="hint">只在群里回 @ 和点名的，其他一律不吭声；私聊不受影响。两个额度和「预算」页共用一个池子，这里只是给群聊单独设上限。</span></div>
-
-    <div class="gr"><span class="lbl">群聊已花</span>
-      <span id="gSpent" class="hint">—</span><span class="hint"></span></div>
-
-    <div class="gr wide"><span class="lbl">白名单</span>
-      <textarea data-p="groups.allow" rows="3" placeholder="一行一个，也可以用逗号 / 空格隔开；留空 = 所有群都行"></textarea>
-      <span class="hint">只在这些群说话</span></div>
-
-    <div class="gr wide"><span class="lbl">群黑名单</span>
-      <textarea data-p="groups.block" rows="3" placeholder="一行一个群号，也可以用逗号 / 空格隔开"></textarea>
-      <span class="hint">这些群一律不理</span></div>
-
-    <div class="gr wide"><span class="lbl">用户黑名单</span>
-      <textarea data-p="blacklist.uins" rows="3" placeholder="一行一个 QQ 号，也可以用逗号 / 空格隔开"></textarea>
-      <span class="hint">针对个人，不是群</span></div>
-
-    <div class="gr"><span class="lbl">黑名单怎么处理</span>
-      <select data-p="blacklist.mode"><option value="curse">骂回去</option><option value="ignore">完全不理会</option></select>
-      <span class="hint">对上面这些人</span></div>
-
-    <div class="gr"><span class="lbl">群里收表情包</span>
-      <label class="sw"><input type="checkbox" data-cb="stickers.collectFromGroup"><span>别人发的也能收进她的库</span></label>
-      <span class="hint"></span></div>
-  </div>
-</div>
-  <h3 class="paneh">日志</h3>
-<div class="pane" id="log">
-  <div class="card"><div class="row" style="justify-content:space-between"><b>日志</b><button class="ghost btn" onclick="loadLog()">刷新</button></div>
-    <pre id="logPre" style="max-height:none;height:calc(100vh - 230px)"></pre></div>
+  <h3 class="paneh">上网兴趣</h3>
+<div class="pane" id="interests">
+  <div class="card"><div class="row" style="justify-content:space-between"><b>她感兴趣的事</b><button class="btn" onclick="saveInterests()">保存</button></div>
+    <p class="dim">每行一条；她上网时按这些找东西看。</p>
+    <textarea id="intTopics" style="min-height:160px"></textarea>
+    <div class="row" style="margin-top:10px"><span class="dim">兴趣浏览每天最多</span><input id="intMax" type="number" style="width:90px"><span class="dim">次</span></div>
+    <div class="row" style="margin-top:10px"><span class="dim">最近看到</span></div>
+    <div id="seenBox" class="dim" style="font-size:12px;line-height:1.7"></div></div>
 </div>
 </section>
+
+<section id="theme">
+  <div class="card"><div class="toolbar"><b>控制台主题</b><span class="spacer"></span><button class="ghost" onclick="resetTheme()">恢复默认</button></div>
+    <p class="dim">保存在当前浏览器；导出主题可带到另一台电脑。</p>
+    <div class="gr"><label for="themePreset">预设</label><select id="themePreset" onchange="chooseTheme(this.value)"><option value="night">深海蓝</option><option value="warm">暖色</option><option value="light">浅色</option></select></div>
+    <div class="theme-colors" id="themeColors"></div>
+    <div class="gr"><label for="themeRadius">圆角</label><input id="themeRadius" type="range" min="0" max="24" oninput="saveTheme()"><span id="themeRadiusValue" class="hint"></span></div>
+    <div class="gr"><label for="themeDensity">密度</label><select id="themeDensity" onchange="saveTheme()"><option value="compact">紧凑</option><option value="normal">标准</option><option value="relaxed">宽松</option></select></div>
+    <div class="gr"><label for="themeFont">字体</label><select id="themeFont" onchange="saveTheme()"><option value="system">系统字体</option><option value="serif">衬线</option><option value="mono">等宽</option></select></div>
+  </div>
+  <div class="card"><label for="themeCss"><b>自定义 CSS</b></label><p class="dim">应用后即时预览，可随时恢复默认。</p>
+    <textarea id="themeCss" spellcheck="false" placeholder="例如：.brand b { letter-spacing: 2px; }" style="min-height:180px"></textarea>
+    <div class="toolbar" style="margin-top:12px"><button class="btn" onclick="saveTheme()">应用 CSS</button><span id="themeMessage" class="hint" role="status"></span></div></div>
+  <div class="card"><div class="toolbar"><b>导入 / 导出</b><span class="spacer"></span><button class="ghost" onclick="document.getElementById('themeFile').click()">导入主题</button><button class="btn" onclick="exportTheme()">导出主题</button></div>
+    <input id="themeFile" type="file" accept=".json,application/json" hidden onchange="importTheme(this)"></div>
+</section>
+</div>
 </main>
 <script>__WK_SCRIPT__</script>
 <script>
 const $ = (s) => document.querySelector(s);
+__CONSOLE_LAYOUT__
 const PG = {
   overview: ['概览', '她连上没有、今天花了多少、要不要重启'],
-  her: ['她', '她是谁、怎么说话、随手发什么图'],
-  memory: ['记忆', '她记住的事，和遗忘曲线'],
+  log: ['日志', '最近发生的事与运行记录'],
+  her: ['人设', '人物形象、人格提示词与表情包'],
+  memory: ['记忆', '记忆关系、经验库与技能记录'],
   money: ['花费', '上限、本月用量、钱花在哪种消息上'],
-  config: ['设置', '账号、通道、群聊与日志']
+  config: ['设置', '大脑、语音、画图、看图与主动消息'],
+  theme: ['主题', '预设、颜色、圆角密度、字体与自定义 CSS']
 };
 const PAGE_LOAD = {
   overview: () => { loadState(); loadRecent(); },
-  her: () => { loadPersona(); loadSelf(); loadStickers(); loadInterests(); },
+  log: () => { loadLog(); loadRecent(); },
+  her: () => { loadPersona(); loadSelf(); loadStickers(); },
   memory: () => loadMem(),
   money: () => loadBudget(),
-  config: () => { loadCfg(); loadLog(); }
+  config: () => { loadCfg(); loadInterests(); },
+  theme: () => loadThemeForm()
 };
-const ALIAS = { status: 'overview', persona: 'her', stickers: 'her', interests: 'her', budget: 'money', groups: 'config', log: 'config' };
+const ALIAS = { status: 'overview', persona: 'her', stickers: 'her', interests: 'config', budget: 'money', groups: 'config' };
 function goPage(t) {
   const b = document.querySelector('nav button[data-t="' + t + '"]');
   if (b && b.onclick) b.onclick();
@@ -2747,6 +2564,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('section').forEach(x => x.classList.remove('on'));
   b.classList.add('on'); $('#' + b.dataset.t).classList.add('on');
   setPageTitle(b.dataset.t);
+  history.replaceState(null, '', '#' + target);
   const mainEl = document.querySelector('main');
   if (mainEl) mainEl.scrollTop = 0;
   try { (PAGE_LOAD[b.dataset.t] || function(){})(); } catch (e) {}
@@ -2890,8 +2708,8 @@ let __toastTimer = null;function toast(msg, ok = true) {
 // 任何表单改动都记为"脏"，切页面时如果没保存就还原成上次保存的值
 function markDirty() { __dirty = true; document.body.dataset.dirty = '1'; }
 function clearDirty() { __dirty = false; delete document.body.dataset.dirty; }
-document.addEventListener('input', (e) => { if (e.target.closest && e.target.closest('[data-p],[data-cb],.card')) markDirty(); }, true);
-document.addEventListener('change', (e) => { if (e.target.closest && e.target.closest('[data-p],[data-cb]')) markDirty(); }, true);
+document.addEventListener('input', (e) => { if (e.target.closest && e.target.closest('#cfgBox')) markDirty(); }, true);
+document.addEventListener('change', (e) => { if (e.target.closest && e.target.closest('#cfgBox')) markDirty(); }, true);
 
 function togglePass(){
   const b = document.getElementById('passBox');
@@ -2969,7 +2787,7 @@ function toggleAdv(force){
   const open = (force === undefined) ? (box.style.display === 'none') : !!force;
   box.style.display = open ? '' : 'none';
   document.querySelectorAll('.advonly').forEach((n) => { n.style.display = open ? '' : 'none'; });
-  btn.textContent = open ? '收起' : '显示更多：最近日志、备份、授权码、人物';
+  btn.textContent = open ? '收起' : '更多：备份、删除授权码、人物状态';
   try { localStorage.setItem('advOpen', open ? '1' : '0'); } catch (e) {}
 }
 // 两个入口（控制台 / 聊天窗）同时开着时，一边收起、另一边要跟着收
@@ -3047,16 +2865,15 @@ async function loadState(){
     + '<button class="ghost btn" onclick="runDoctor()">检查一下</button></div>'
     + '<div class="dim" style="margin-top:6px">第一次用、换电脑、重装之后点一下：最基础的那几项有没有坏。只读检查，不改任何东西。</div>'
     + '<div id="doctorBox" style="margin-top:8px"></div></div>'
-    + '<div class="card" id="workCard"><div class="row" style="justify-content:space-between"><b>工作模式</b>'
+    + '<div class="card" id="workCard"><div class="row" style="justify-content:space-between"><b>是否允许动本地电脑文件</b>'
     + '<span id="workBadge" class="pill">未开启</span></div>'
-    + '<div class="dim" id="workInfo" style="margin-top:6px">日常聊天她只能看、不能改。要她动手改文件，点下面按钮，先选一个工作目录。</div>'
+    + '<div class="dim" id="workInfo" style="margin-top:6px">默认关闭。开启后仍需选择文件夹，并按会话权限操作。</div>'
     + '<div id="workEdits" style="margin-top:10px"></div>'
     + '<div class="dim" id="workToolsHint" style="margin-top:6px;font-size:12px"></div>'
-    + '<div class="row" style="margin-top:10px;gap:8px"><button class="btn" onclick="openWorkDialog()">进入工作模式</button>'
-    + '<button class="ghost btn" onclick="goPage(this.dataset.p)" data-p="config">「允许她动电脑」开关在设置里</button>'
+    + '<div class="row" style="margin-top:10px;gap:8px"><button class="btn" onclick="openWorkDialog()">选择文件夹</button>'
+    + '<button class="ghost btn" id="sToolsBtn" onclick="toggleWorkTools()">允许动本地文件</button><span id="sToolsState" class="dim"></span><span id="sToolsHint" class="hint"></span>'
     + '<button class="ghost btn" id="workStop" onclick="stopWork()" style="display:none">停止工作会话</button></div></div>'
     + '<div id="advBox" style="display:none">'
-    + '<div class="card"><b>最近日志</b>' + '<span style="float:right;font-size:12px"><a href="#log" style="color:#7fb2ff;text-decoration:none">看全部 →</a></span>' + '<pre>' + (S.log || []).slice(-3).reverse().map(esc).join('\n') + '</pre></div>'
     + '<div class="card"><div class="row" style="justify-content:space-between"><b>备份</b>'
     + '<button class="btn" onclick="runBackup()">立刻备份</button>'
     + '<div class="dim" id="bkInfo" style="margin-top:6px">读取中…</div>'
@@ -3067,10 +2884,10 @@ async function loadState(){
     + '<div id="delCodeBox" style="margin-top:8px"></div></div>'
     + minds
     + '<div class="card"><b>今天的主动消息</b>' + proHtml + '</div>'
-    + '<div class="card"><b>QQ 内核日志</b><div class="dim">这里就是原来那个黑窗口里的内容（隐藏内核模式下）</div><pre style="max-height:240px">'
-    + (S.kernel && S.kernel.length ? S.kernel.slice().reverse().map(esc).join('\n') : '（还没抓到。安装隐藏内核并重启一次 QQ 后，这里会实时出现 NapCat 日志）') + '</pre></div>'
     + '</div>'
     ;
+  $('#kernelLog').textContent = (S.kernel || []).slice().reverse().join('\n') || '暂无 QQ 内核日志';
+  $('#qqSummary').textContent = l ? 'QQ 已登录' : (S.qqEnabled === false ? 'QQ 接入未开启' : '等待扫码');
   paintQr(S, l);
   try { toggleAdv(localStorage.getItem('advOpen') === '1'); setTimeout(loadRecent, 30); } catch (e) {}
   renderDelCode();
@@ -3137,12 +2954,13 @@ async function qrRefresh(){
 }
 function paintQr(S, l){
   const slot = $('#qrSlot');
+  slot.hidden = !__qrOpen;
   if (S && S.qqEnabled === false) { slot.innerHTML = '<div class="card">'
       + '<div class="toolbar"><b>扫码登录 QQ</b><span class="pill">已关闭</span><span class="spacer"></span>'
       + '<button class="btn" onclick="qqStartScan()">启动扫码登录 QQ</button></div>'
-      + '<p class="dim" style="margin:0">现在只用软件内聊天（Chat / 手机端照常），不再登录 QQ、也不刷新二维码。点了右上角按钮才会拉起内核并出码。</p></div>';
+      + '<p class="dim" style="margin:0">QQ 接入未开启。点击启动后拉起内核并获取二维码。</p></div>';
     slot.dataset.built=''; return; }
-  if (l) { slot.innerHTML = ''; slot.dataset.built = ''; slot.dataset.at = ''; return; }
+  if (l) { slot.innerHTML = '<div class="card dim">QQ 已登录，需要重新扫码时使用托盘的设置向导。</div>';  slot.dataset.built = ''; slot.dataset.at = ''; return; }
   if (slot.dataset.built !== '1') {
     slot.innerHTML = '<div class="card">'
       + '<div class="toolbar"><b>扫码登录 QQ</b><span class="pill" id="qrPill"></span><span class="spacer"></span>'
@@ -3186,7 +3004,7 @@ function paintQr(S, l){
     } else if (typeof napcatGuide === 'function' && S && S.napcatReady === false) {
       ph.innerHTML = napcatGuide(S);
     } else {
-      ph.textContent = '内核还没出码。点右上「立即换一张」，或到设置里确认 NapCat 路径和内核守护。';
+      ph.textContent = '内核还没出码。点右上「立即换一张」，或从托盘打开设置向导确认 NapCat 路径。';
     }
   }
 }
@@ -3228,7 +3046,7 @@ function uploadRef(input){
     $('#sfState').textContent = '上传中…';
     const r = await api('/api/self/ref', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: fr.result }) });
     $('#sfState').textContent = r.ok ? '参考图已保存' : ('失败：' + (r.err || ''));
-    if (r.ok) loadSelf();
+    if (r.ok) { await loadSelf(); await describeRef(); }
   };
   fr.readAsDataURL(f);
   input.value = '';
@@ -3245,8 +3063,10 @@ async function savePersona(){ await api('/api/persona',{method:'PUT',headers:{'C
 
 async function loadMem(){
   const uin = $('#memWho').value || (S.people && S.people[0]) || '';
-  if (!uin) { $('#memTable').innerHTML = '<tr><td class="dim">还没有任何人的记忆</td></tr>'; return; }
+  if (!uin) { $('#memTable').innerHTML = '<tr><td class="dim">还没有任何人的记忆</td></tr>'; renderMemoryGraph([]); loadLessons(); loadSkills(); return; }
   const r = await api('/api/memory?uin=' + uin);
+  if ($('#memWho').value && $('#memWho').value !== uin) return;
+  renderMemoryGraph(r.items);
   $('#memTable').innerHTML = '<tr><th>内容</th><th>基础权重</th><th>当前强度</th><th>类型</th><th>来源</th><th></th></tr>' + r.items.map(it =>
     '<tr' + (it.stale ? ' style="opacity:.55"' : '') + '><td>' + esc(it.text)
     + (it.stale ? ' <span class="dim">（已被更正，不再用）</span>' : '')
@@ -3257,7 +3077,7 @@ async function loadMem(){
     + '<td><select id="k' + it.index + '" style="width:80px">'
     + ['core','fact','trivia'].map(k => '<option value="' + k + '"' + (it.kind===k?' selected':'') + '>' + (k==='core'?'核心':k==='trivia'?'琐事':'事实') + '</option>').join('')
     + '</select></td>'
-    + '<td class="dim" style="white-space:nowrap">' + memSource(it) + '</td>'
+    + '<td class="dim" style="white-space:nowrap">' + memorySourceLabel(it) + '</td>'
     + '<td><button class="btn" onclick="saveMem(' + it.index + ')">存</button> <button class="danger btn" onclick="delMem(' + it.index + ')">删</button></td></tr>').join('');
   try { loadLessons(); loadSkills(); } catch (e) {}
 }
@@ -3298,7 +3118,7 @@ function paintWorkTools(on) {
   const pairs = [['#workToolsBtn', '#workToolsState'], ['#sToolsBtn', '#sToolsState']];
   for (const [bid, sid] of pairs) {
     const b = $(bid), st = $(sid);
-    if (b) b.textContent = on ? '已允许（点我关掉）' : '允许她动电脑';
+    if (b) { b.textContent = on ? '已允许（点击关闭）' : '允许动本地文件'; b.setAttribute('aria-pressed', String(!!on)); }
     if (st) { st.style.color = on ? '#7ad48a' : ''; st.textContent = on ? '开着的' : '关着'; }
   }
 }
@@ -3392,7 +3212,7 @@ async function loadWork(){
       badge.textContent = '未开启';
       badge.style.color = '';
       badge.style.borderColor = '';
-      info.innerHTML = '日常聊天她只能看、不能改。点「进入工作模式」选一个文件夹，她才能在里面读写。';
+      info.innerHTML = '先开启允许动本地文件，再点「选择文件夹」设置范围和权限。';
       stop.style.display = 'none';
     }
     renderWorkEdits(WORK.active ? (r && r.edits) || [] : []);
@@ -3662,66 +3482,13 @@ async function saveInterests(){
 async function loadCfg(){
   const c = await api('/api/config');
   const br = await api('/api/brain');
-  const su = await api('/api/setup').catch(() => ({}));
   const vi = await api('/api/voice').then(r => (r && r.info) || {}).catch(() => ({}));
   const dInfo = await api('/api/draw/info').catch(() => ({}));
-  const g = c.groups || {};
-  const q = (sel, val) => { const el = document.querySelector(sel); if (el) el.value = (val === undefined || val === null) ? '' : val; };
-  // 通用回填：所有 [data-p] / [data-cb] 按配置里的路径还原（切页面时"没保存就复原"靠它）
-  const getPath = (o, p) => p.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
-  document.querySelectorAll('[data-p]').forEach((el) => {
-    const v = getPath(c, el.dataset.p);
-    if (v === undefined || v === null) { if (el.type !== 'number' || v === null) el.value = ''; return; }
-    if (el.tagName === 'TEXTAREA' && Array.isArray(v)) el.value = v.join('\n');
-    else el.value = Array.isArray(v) ? v.join(',') : v;
-  });
-  document.querySelectorAll('[data-cb]').forEach((el) => {
-    const v = getPath(c, el.dataset.cb);
-    if (v !== undefined && v !== null) el.checked = !!v;
-  });
-  q('[data-p="groups.spicy"]', g.spicy ?? 2);
-  q('[data-p="groups.joinSec"]', g.joinSec ?? 8);
-  q('[data-p="groups.maxJoin"]', g.maxJoin ?? 8);
-  q('[data-p="names"]', ((c.names && c.names.length) ? c.names : []).join(','));
-  q('[data-p="groups.dayCap"]', g.dayCap ?? 0);
-  q('[data-p="groups.monthCap"]', g.monthCap ?? 0);
-  api('/api/budget').then(bd => {
-    const el = document.getElementById('gSpent');
-    if (!el) return;
-    const gm = Number((bd && bd.byChannel && bd.byChannel.group) || 0);
-    const gd = Number((bd && bd.byChannelDay && bd.byChannelDay.group) || 0);
-    const mc = Number((c.groups && c.groups.monthCap) || 0);
-    const dc = Number((c.groups && c.groups.dayCap) || 0);
-    el.textContent = '今天 ¥' + gd.toFixed(2) + (dc > 0 ? '/' + dc.toFixed(2) : '') + ' · 本月 ¥' + gm.toFixed(2) + (mc > 0 ? '/' + mc.toFixed(2) : '') + ' · 总已花 ¥' + Number((bd && bd.spent) || 0).toFixed(2);
-  }).catch(() => {});
-  q('[data-p="blacklist.uins"]', ((c.blacklist && c.blacklist.uins) || []).join('\n'));
-  q('[data-p="blacklist.mode"]', (c.blacklist && c.blacklist.mode) || 'curse');
-  q('[data-p="groups.followMin"]', g.followMin ?? 5);
-  q('[data-p="groups.maxChain"]', g.maxChain ?? 6);
-  q('[data-p="groups.recallCount"]', g.recallCount ?? 8);
-  q('[data-p="groups.gapSec"]', g.gapSec ?? 15);
-  q('[data-p="groups.allow"]', (g.allow || []).join('\n'));
-  q('[data-p="groups.block"]', (g.block || []).join('\n'));
-  const setCb = (sel, on) => { const el = document.querySelector(sel); if (el) el.checked = !!on; };
-  setCb('[data-cb="groups.enabled"]', g.enabled !== false);
-  setCb('[data-cb="groups.needCall"]', g.needCall !== false);
-  setCb('[data-cb="groups.followAuto"]', g.followAuto !== false);
-  setCb('[data-cb="stickers.collectFromGroup"]', !!(c.stickers && c.stickers.collectFromGroup));
-  const asrInfo = await api('/api/voice').then(r => (r && r.info) || {}).catch(() => ({}));
   const num = (label, path, v, step=1, hint='') => '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">' + label + '</span><input type="number" step="' + step + '" value="' + v + '" data-p="' + path + '" style="width:110px"><span class="dim">' + hint + '</span></div>';
   const tim = (label, path, v) => '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">' + label + '</span><input type="time" step="60" value="' + v + '" data-p="' + path + '" style="width:120px"><span class="dim">24 小时制</span></div>';
   const cb = (label, path, on, hint = '') => '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">' + label + '</span><label class="dim"><input type="checkbox" data-cb="' + path + '"' + (on ? ' checked' : '') + ' style="width:auto"> ' + (hint || '开启') + '</label></div>';
   $('#cfgBox').innerHTML = '<div class="row" style="justify-content:space-between"><b>设置</b><span><span class="dim" id="cfgMsg" style="margin-right:10px"></span><button class="ghost" onclick="restartBridgeClick()">重启桥接</button><button class="btn" onclick="saveCfg()">保存</button></span></div>'
     + '<p class="dim">改完点保存就生效，不用退出程序。只有换模型供应商这类情况才需要点「重启桥接」。</p>'
-    + '<h4 class="sect">允许她动电脑</h4>'
-    + '<p class="dim" style="margin:0 0 6px 0">默认关着：她只能聊天。打开后她才可以在你选的文件夹里读/改文件、跑命令；动手前会先问你。</p>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">现在</span><button class="pri" id="sToolsBtn" onclick="toggleWorkTools()">允许她动电脑</button><span class="dim" id="sToolsState" style="margin-left:8px">关着</span></div>'
-    + '<div class="dim" id="sToolsHint" style="margin:0 0 6px 210px;font-size:12px"></div>'
-    + '<h4 class="sect">账号</h4>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">机器人 QQ（小号）</span><input value="' + (su.uin || '') + '" readonly style="width:200px"><span class="dim">扫码登录后自动识别</span></div>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">主人 QQ</span><input id="ownerUin" value="' + (su.ownerUin || '') + '" placeholder="你自己的 QQ 号" style="width:200px"><button class="ghost" onclick="saveOwner()">保存主人</button><span class="dim" id="ownMsg"></span></div>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">数据目录</span><input value="' + (su.dataDir || '') + '" readonly style="flex:1"><button class="ghost" onclick="openData()">打开</button></div>'
-    + '<p class="dim" style="margin:0 0 6px 210px">记忆、表情包、人格、聊天日志都在这。换电脑/换盘时把这个文件夹整体拷走即可。</p>'
     + '<h4 class="sect">大脑（API）</h4>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">接口地址</span><input id="brUrl" value="' + (br.baseUrl || '') + '" style="flex:1"></div>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">API Key</span><input id="brKey" type="password" placeholder="' + (br.keySet ? '已保存 ' + br.keyMask + '（留空不改）' : 'sk-…') + '" style="flex:1"></div>'
@@ -3738,48 +3505,11 @@ async function loadCfg(){
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">新增音色包</span><input id="vNewName" placeholder="名称，如 甜妹" style="width:150px"><input id="vNewId" placeholder="音色 ID，如 longxin_v2" style="width:200px">'
     + '<button class="ghost" onclick="addVoice()">添加</button><button class="ghost danger" onclick="delVoice()">删除选中</button></div>'
     + '<p class="dim" style="margin:0 0 6px 210px">音色包存在 data\\voices.json，内置的不让删；试听会用当前选中的音色现场合成一句。</p>'
-    + '<h4 class="sect">主动消息</h4>'
-    + cb('启用 *', 'proactive.enabled', !(c.proactive && c.proactive.enabled === false), '她会主动找你说话')
-    + cb('早上加一次', 'proactive.morningBoost', !(c.proactive && c.proactive.morningBoost === false), '起床时段更容易冒泡')
-    + num('每天最多', 'proactive.maxPerDay', c.proactive.maxPerDay, 1, '次')
-    + num('同一人最少间隔', 'proactive.minGapMin', c.proactive.minGapMin, 5, '分钟')
-    + num('你说话后多久才可能', 'proactive.quietMin', c.proactive.quietMin, 5, '分钟')
-    + tim('活跃开始', 'proactive.activeFrom', c.proactive.activeFrom)
-    + tim('活跃结束', 'proactive.activeTo', c.proactive.activeTo)
-    + '<p class="dim" style="margin:0 0 6px 210px">结束早于开始 = 跨夜（比如 10:00 → 04:00）</p>'
-    + num('开口概率', 'proactive.chance', c.proactive.chance, 0.05, '0–1')
-    + '<h4 class="sect">上网</h4>'
-    + cb('启用 *', 'browse.enabled', !(c.browse && c.browse.enabled === false), '自己去刷新闻/视频，攒点能聊的东西')
-    + num('每天最多次数', 'browse.perDay', c.browse.perDay, 1, '次')
-    + tim('最早', 'browse.fromTime', c.browse.fromTime)
-    + tim('最晚', 'browse.toTime', c.browse.toTime)
-    + '<h4 class="sect">聊天节奏</h4>'
-    + num('合消息等待', 'reply.debounceMs', c.reply.debounceMs, 500, '毫秒（4500 = 4.5 秒）')
-    + num('最多连发', 'reply.maxConsecutive', c.reply.maxConsecutive, 1, '条')
-    + '<h4 class="sect">QQ 空间</h4>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">启用 *</span><label class="dim"><input type="checkbox" data-cb="qzone.enabled"' + (c.qzone.enabled ? ' checked' : '') + ' style="width:auto"> 每天自动发说说</label></div>'
-    + num('每天最多', 'qzone.perDay', c.qzone.perDay, 1, '条')
-    + tim('最早', 'qzone.fromTime', c.qzone.fromTime)
-    + tim('最晚', 'qzone.toTime', c.qzone.toTime)
-    + num('当天发的概率', 'qzone.chance', c.qzone.chance, 0.05, '0–1')
-    + '<h4 class="sect">记忆</h4>'
-    + cb('自动整理记忆', 'memory.digest', !(c.memory && c.memory.digest === false), '从聊天里自动抽「他是谁、喜好、雷区」，不用她每次都记得写标签')
-    + cb('记错了自动作废旧条目', 'memory.autoCorrect', !(c.memory && c.memory.autoCorrect === false), '换了城市/工作/学校、毕业、分手这类新情况，会照抄旧的原文把它删掉')
-    + '<h4 class="sect">语音识别</h4>'
-    + cb('把收到的语音转成文字', 'asr.enabled', !(c.asr && c.asr.enabled === false), '关掉后她只会说「你发了条语音」，省识别费')
-    + '<h4 class="sect">她自己的生活</h4>'    + cb('每天给自己排日程', 'life.plan', !(c.life && c.life.plan === false), '关掉就没有「我今天在干嘛」，聊天会变空心')
-    + cb('晚上写日记', 'life.journal', !(c.life && c.life.journal === false), '关掉就不写，第二天她也就不知道自己昨天干了啥')
-    + cb('外面的事撞到她', 'life.events', !(c.life && c.life.events === false), '每天 2–3 件小事（外卖送错、快递、下雨、朋友找），会进日记和聊天；关掉她的一天就只剩自己排的事')
     + '<h4 class="sect">语音识别（ASR）</h4>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">方式</span><select data-p="asr.provider" style="width:280px"><option value="local"' + (((c.asr && c.asr.provider) || 'local') === 'local' ? ' selected' : '') + '>本机模型（faster-whisper，免费但吃内存）</option><option value="openai"' + ((c.asr && c.asr.provider) === 'openai' ? ' selected' : '') + '>OpenAI 兼容接口（/audio/transcriptions）</option></select></div>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">接口地址</span><input data-p="asr.baseUrl" value="' + ((c.asr && c.asr.baseUrl) || '') + '" style="flex:1" placeholder="选 openai 时必填，如 https://api.openai.com/v1"></div>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">模型</span><input data-p="asr.model" list="dlAsr" value="' + ((c.asr && c.asr.model) || '') + '" style="width:260px" placeholder="留空 = whisper-1"><button class="ghost" onclick="pullModels(\'asr\')">拉取</button><span class="dim" id="amMsg">可下拉选，也可手填</span><datalist id="dlAsr"></datalist></div>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">API Key</span><input data-p="asr.key" type="password" placeholder="已保存或留空" style="flex:1"></div>'
-    + '<h4 class="sect">看图</h4>'
-    + '<p class="dim" style="margin:0 0 6px 210px" id="vInfo">检查中…</p>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">接口地址</span><input data-p="vision.baseUrl" value="' + ((c.vision && c.vision.baseUrl) || '') + '" style="flex:1" placeholder="留空 = 用大脑的地址"></div>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">模型</span><input data-p="vision.model" list="dlVision" value="' + ((c.vision && c.vision.model) || '') + '" style="width:260px" placeholder="留空 = 用大脑的模型"><button class="ghost" onclick="pullModels(\'vision\')">拉取</button><span class="dim" id="vmMsg">可下拉选，也可手填</span><datalist id="dlVision"></datalist></div>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">API Key</span><input data-p="vision.key" type="password" placeholder="留空 = 用大脑的 key" style="flex:1"></div>'
     + '<h4 class="sect">画图</h4>'
     + cb('允许她自己画图', 'draw.enabled', !(c.draw && c.draw.enabled === false), '聊天时她会用 [[画:…]] 亲手画一张发给你')
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">协议</span><select data-p="draw.provider" style="width:320px"><option value="auto"' + (((c.draw && c.draw.provider) || 'auto') === 'auto' ? ' selected' : '') + '>自动（看地址判断）</option><option value="ark"' + ((c.draw && c.draw.provider) === 'ark' ? ' selected' : '') + '>火山方舟 Seedream（支持参考图）</option><option value="dashscope"' + ((c.draw && c.draw.provider) === 'dashscope' ? ' selected' : '') + '>阿里云百炼·万相（异步，纯文字）</option><option value="openai"' + ((c.draw && c.draw.provider) === 'openai' ? ' selected' : '') + '>OpenAI 兼容 /images/generations</option></select></div>'
@@ -3795,14 +3525,27 @@ async function loadCfg(){
     + '<div class="row" style="margin:0 0 6px"><span style="width:210px" class="dim"></span><span class="dim">这段时间内再拍，会沿用上一张的环境（只换姿势）；她换了地方或超时就算新场景。0 = 从不接着上一张。可在场景里写「还在」「继续」强制接上。</span></div>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim"></span><button class="ghost" onclick="testDraw()">试画一张</button><span class="dim" id="dMsg"></span></div>'
     + '<div id="dOut"></div>'
-    + '<h4 class="sect">表情包</h4>'
-    + cb('收对方发的表情包', 'stickers.collectFromUser', !(c.stickers && c.stickers.collectFromUser === false), '收到后她自己判断要不要收藏')
-    + cb('收群里的表情包', 'stickers.collectFromGroup', !(c.stickers && c.stickers.collectFromGroup === false), '')
-    + num('表情包上限', 'stickers.max', c.stickers.max, 10, '张')
-    + '<h4 class="sect">预算</h4>'
-    + cb('启用月度预算熔断', 'budget.enabled', !(c.budget && c.budget.enabled === false), '超预算自动降耗、再超就停')
-    + num('月度预算', 'budget.monthlyCap', c.budget && c.budget.monthlyCap, 1, '元')
-    + num('再超多少就停', 'budget.notifyExtra', c.budget && c.budget.notifyExtra, 1, '元');
+    + '<h4 class="sect">看图</h4>'
+    + '<p class="dim" style="margin:0 0 6px 210px" id="vInfo">检查中…</p>'
+    + '<div id="visionFields"><div class="row" style="margin:6px 0"><span style="width:210px" class="dim">接口地址</span><input data-p="vision.baseUrl" value="' + ((c.vision && c.vision.baseUrl) || '') + '" style="flex:1" placeholder="留空 = 用大脑的地址"></div>'
+    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">模型</span><input data-p="vision.model" list="dlVision" value="' + ((c.vision && c.vision.model) || '') + '" style="width:260px" placeholder="留空 = 用大脑的模型"><button class="ghost" onclick="pullModels(\'vision\')">拉取</button><span class="dim" id="vmMsg">可下拉选，也可手填</span><datalist id="dlVision"></datalist></div>'
+    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">API Key</span><input data-p="vision.key" type="password" placeholder="留空 = 用大脑的 key" style="flex:1"></div>'
+    + '</div>'
+    + '<h4 class="sect">主动消息</h4>'
+    + cb('启用 *', 'proactive.enabled', !(c.proactive && c.proactive.enabled === false), '她会主动找你说话')
+    + cb('早上加一次', 'proactive.morningBoost', !(c.proactive && c.proactive.morningBoost === false), '起床时段更容易冒泡')
+    + num('每天最多', 'proactive.maxPerDay', c.proactive.maxPerDay, 1, '次')
+    + num('同一人最少间隔', 'proactive.minGapMin', c.proactive.minGapMin, 5, '分钟')
+    + num('你说话后多久才可能', 'proactive.quietMin', c.proactive.quietMin, 5, '分钟')
+    + tim('活跃开始', 'proactive.activeFrom', c.proactive.activeFrom)
+    + tim('活跃结束', 'proactive.activeTo', c.proactive.activeTo)
+    + '<p class="dim" style="margin:0 0 6px 210px">结束早于开始 = 跨夜（比如 10:00 → 04:00）</p>'
+    + num('开口概率', 'proactive.chance', c.proactive.chance, 0.05, '0–1')
+    + '<h4 class="sect">上网</h4>'
+    + cb('启用 *', 'browse.enabled', !(c.browse && c.browse.enabled === false), '自己去刷新闻/视频，攒点能聊的东西')
+    + num('每天最多次数', 'browse.perDay', c.browse.perDay, 1, '次')
+    + tim('最早', 'browse.fromTime', c.browse.fromTime)
+    + tim('最晚', 'browse.toTime', c.browse.toTime);
   await loadVoiceOptions(((c.tts && c.tts.voiceId) || c.voice || ''));
   paintKeyStatus();
   paintVision();
@@ -3814,6 +3557,9 @@ async function paintVision(){
   if (!el) return;
   try {
     const i = await api('/api/vision/info');
+    const fields = $('#visionFields');
+    fields.hidden = !!i.brainOk;
+    fields.querySelectorAll('input,button').forEach(el => { el.disabled = !!i.brainOk; });
     const tag = i.mode === 'custom' ? '【已单独配置】' : i.mode === 'brain' ? '【大脑自带】' : i.mode === 'fallback' ? '【自动兜底】' : '【需要配置】';
     el.textContent = tag + ' ' + (i.note || '') + (i.model ? '（当前用：' + i.model + '）' : '');
     el.style.color = i.mode === 'none' ? '#e5a13a' : i.mode === 'fallback' ? '#9ab0cc' : '#6fcf7f';
@@ -3920,12 +3666,6 @@ async function pullModels(kind){
     if (ids.length === 1 && target && !target.value.trim()) target.value = ids[0];
   } catch (e) { if (box) box.textContent = '拉取失败：' + (e.message || e); }
 }
-async function saveOwner(){
-  const v = $('#ownerUin').value.replace(/\D/g,'').trim();
-  if (!v) { $('#ownMsg').textContent = '填个 QQ 号'; return; }
-  const r = await api('/api/setup', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ownerUin: v }) });
-  $('#ownMsg').textContent = r.ok ? '已保存' : ('保存失败：' + (r.error || ''));
-}
 async function saveBrainPanel(){
   const body = { baseUrl: $('#brUrl').value.trim(), model: $('#brModel').value.trim(), key: $('#brKey').value.trim() };
   const r = await api('/api/brain', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -4018,12 +3758,13 @@ async function clearAvatar(who){
 }
 async function saveCfg(){
   const c = await api('/api/config');
-  document.querySelectorAll('[data-cb]').forEach(el => {
+  document.querySelectorAll('#cfgBox [data-cb]').forEach(el => {
     const parts = el.dataset.cb.split('.');
     let o = c; for (let i=0;i<parts.length-1;i++) o = o[parts[i]] = o[parts[i]] || {};
     o[parts[parts.length-1]] = el.checked;
   });
-  document.querySelectorAll('[data-p]').forEach(el => {
+  document.querySelectorAll('#cfgBox [data-p]').forEach(el => {
+    if (el.disabled) return;
     let v = el.type === 'number' ? Number(el.value) : el.value;
     if (el.tagName === 'TEXTAREA' && /^talk\./.test(el.dataset.p)) {
       v = String(el.value).split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
@@ -4068,14 +3809,21 @@ async function restartBridgeClick(){
   }
   say('桥接没起来，去「日志」页看看', '#e2777a');
 }
-async function loadLog(){ const r = await api('/api/log'); $('#logPre').textContent = r.lines.slice().reverse().join('\n'); }
+async function loadLog(){
+  try {
+    const r = await api('/api/log'); $('#logPre').textContent = (r.lines || []).slice().reverse().join('\n') || '暂无运行日志';
+    const state = await api('/api/state'); $('#kernelLog').textContent = (state.kernel || []).slice().reverse().join('\n') || '暂无 QQ 内核日志';
+  } catch (e) { $('#logPre').textContent = '读取失败：' + e.message; }
+}
 async function loadRecent(){
   const el = document.getElementById('recentPre');
   if (!el) return;
   try {
     const r = await api('/api/log');
     const lines = (r && r.lines) || [];
-    el.textContent = lines.slice(-20).reverse().join('\n') || '（还没有日志）';
+    const recent = lines.slice(-20).reverse().map(humanLog);
+    el.textContent = recent.join('\n') || '还没有运行记录';
+    $('#recentSummary').textContent = recent.slice(0, 3).join('\n') || '还没有运行记录';
   } catch (e) { el.textContent = '读不到日志：' + e.message; }
 }
 
@@ -4093,7 +3841,7 @@ function priceChips(p){
 async function loadBudget(){
   const b = await api('/api/budget');
   const pct = Math.min(100, b.cap ? b.spent / b.cap * 100 : 0);
-  const names = { chat: '对话', tts: '语音合成', asr: '语音识别', vision: '看图' };
+  const names = { chat: '对话', tts: '语音合成', asr: '语音识别', vision: '看图', draw: '画图' };
   const rows = Object.entries(b.byKind).map(([k, v]) => '<tr><td>' + (names[k] || k) + '</td><td>￥' + v.toFixed(4) + '</td></tr>').join('');
   $('#budBox').innerHTML =
     '<div class="row" style="margin:8px 0"><b style="font-size:22px">￥' + b.spent.toFixed(2) + '</b>'
@@ -4243,6 +3991,6 @@ setInterval(() => { if ($('#overview') && $('#overview').classList.contains('on'
 </body></html>`;
 
 server.listen(PORT, process.env.QQBOT_UI_HOST || '127.0.0.1', () => {
-  console.log('[ui] http://127.0.0.1:' + PORT);
+  console.log('[ui] http://127.0.0.1:' + server.address().port);
 });
 

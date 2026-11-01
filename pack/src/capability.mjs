@@ -31,3 +31,13 @@ export function looksVision(model) {
   if (!m) return false;
   return VISION_PATTERNS.some(re => re.test(m));
 }
+
+// 控制台、参考图描述和聊天看图共用顺序，避免界面提示与真实请求不一致。
+export function resolveVision(api = {}, custom = {}, aliKey = '', fallback = true) {
+  const model = String(api.model || '');
+  const base = String(api.baseUrl || '').replace(/\/+$/, '');
+  if (looksVision(model)) return { mode: 'brain', baseUrl: base || 'https://api.deepseek.com/v1', model, key: api.key || process.env.DEEPSEEK_API_KEY || '' };
+  if (custom.baseUrl || custom.model) return { mode: 'custom', baseUrl: String(custom.baseUrl || base).replace(/\/+$/, ''), model: custom.model || model, key: custom.key || api.key || '' };
+  if (aliKey && fallback) return { mode: 'fallback', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen3-vl-plus', key: aliKey };
+  return { mode: 'none', baseUrl: '', model: '', key: '' };
+}
