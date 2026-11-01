@@ -77,3 +77,6 @@ DEVNOTES*.md
 pack/_tmp-*.ps1
 pack/_tmp*.cjs
 pack/_tmp*.mjs
+
+# 本地整理时归档的旧文件（2026-11-01）
+_archive/20261101/
