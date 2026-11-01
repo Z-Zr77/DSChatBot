@@ -2924,6 +2924,17 @@ async function loadBackup(){
     if (box) box.textContent = '读不到备份状态：' + String(e && e.message || e);
   }
 }
+// 概览下面那些"偶尔才看一眼"的东西：备份、授权码、人物卡片、QQ 内核日志。
+// 收起来不是藏，是因为它们每次都在，会把"她连上没有"挤出屏幕。
+function toggleAdv(force){
+  const box = $('#advBox'), btn = $('#advBtn');
+  if (!box || !btn) return;
+  const open = (force === undefined) ? (box.style.display === 'none') : !!force;
+  box.style.display = open ? '' : 'none';
+  btn.textContent = open ? '收起' : '显示更多：备份、授权码、人物、QQ 日志';
+  try { localStorage.setItem('advOpen', open ? '1' : '0'); } catch (e) {}
+}
+
 async function runDoctor(){
   // 概览是异步渲染的：从 #doctor 直接进来时盒子还没建好，等它一下
   let box = $('#doctorBox');
@@ -3000,6 +3011,8 @@ async function loadState(){
     + '<div class="row" style="margin-top:10px;gap:8px"><button class="btn" onclick="openWorkDialog()">进入工作模式</button>'
     + '<button class="ghost btn" onclick="goPage(this.dataset.p)" data-p="config">「允许她动电脑」开关在设置里</button>'
     + '<button class="ghost btn" id="workStop" onclick="stopWork()" style="display:none">停止工作会话</button></div></div>'
+    + '<div class="card"><b>最近日志</b><pre>' + S.log.slice().reverse().map(esc).join('\n') + '</pre></div>'
+    + '<div id="advBox" style="display:none">'
     + '<div class="card"><div class="row" style="justify-content:space-between"><b>备份</b>'
     + '<button class="btn" onclick="runBackup()">立刻备份</button>'
     + '<div class="dim" id="bkInfo" style="margin-top:6px">读取中…</div>'
@@ -3010,10 +3023,12 @@ async function loadState(){
     + '<div id="delCodeBox" style="margin-top:8px"></div></div>'
     + minds
     + '<div class="card"><b>今天的主动消息</b>' + proHtml + '</div>'
-    + '<div class="card"><b>最近日志</b><pre>' + S.log.slice().reverse().map(esc).join('\n') + '</pre></div>'
     + '<div class="card"><b>QQ 内核日志</b><div class="dim">这里就是原来那个黑窗口里的内容（隐藏内核模式下）</div><pre style="max-height:240px">'
-    + (S.kernel && S.kernel.length ? S.kernel.slice().reverse().map(esc).join('\n') : '（还没抓到。安装隐藏内核并重启一次 QQ 后，这里会实时出现 NapCat 日志）') + '</pre></div>';
+    + (S.kernel && S.kernel.length ? S.kernel.slice().reverse().map(esc).join('\n') : '（还没抓到。安装隐藏内核并重启一次 QQ 后，这里会实时出现 NapCat 日志）') + '</pre></div>'
+    + '</div>'
+    + '<div style="margin-top:12px"><button class="ghost btn" id="advBtn" onclick="toggleAdv()">显示更多：备份、授权码、人物、QQ 日志</button></div>';
   paintQr(S, l);
+  try { if (localStorage.getItem('advOpen') === '1') toggleAdv(true); } catch (e) {}
   renderDelCode();
   loadBackup();
   try { loadWork(); } catch (e) {}
@@ -3541,8 +3556,13 @@ async function pollApprovals(force){
       + items.map((x) =>
         '<div style="padding:11px 13px;border-bottom:1px solid #24304a">'
         + '<div class="dim" style="font-size:12px">' + esc(x.name) + ' · ' + fmtTime(x.at) + '</div>'
+        + (x.name === 'run_cmd' && x.args && Array.isArray(x.args.cmd)
+            ? '<div style="margin:6px 0 2px;font-family:ui-monospace,Consolas,monospace;font-size:13px;color:#dfe9ff;background:#0b1523;padding:9px 10px;border-radius:8px;word-break:break-all">' + esc(x.args.cmd.join(' ')) + '</div>'
+            : '')
         + (x.dir ? '<div class="dim" style="font-size:12px;margin-top:2px">在工作区里跑：' + esc(x.dir) + (x.mode ? ' · ' + esc(x.mode === 'workspace' ? '只能动这个文件夹' : x.mode === 'full' ? '不限制路径（慎用）' : '已关闭') : '') + '</div>' : '')
-        + '<pre style="white-space:pre-wrap;word-break:break-all;margin:6px 0 8px;font-size:12px;color:#c9d6ee;background:#0b1523;padding:8px;border-radius:8px">' + esc(JSON.stringify(x.args || {}, null, 1)) + '</pre>'
+        + (x.name === 'run_cmd' && x.args && Array.isArray(x.args.cmd)
+            ? '<div class="dim" style="font-size:12px;margin:4px 0 8px">这是要跑的命令全文；点「同意」才会执行，超时 ' + esc(String(x.timeoutMs || x.args.timeoutMs || 60)) + ' 秒</div>'
+            : '<pre style="white-space:pre-wrap;word-break:break-all;margin:6px 0 8px;font-size:12px;color:#c9d6ee;background:#0b1523;padding:8px;border-radius:8px">' + esc(JSON.stringify(x.args || {}, null, 1)) + '</pre>')
         + '<div class="row" style="justify-content:flex-end;gap:8px">'
         + '<button class="btn" onclick="apDecide(\'' + esc(x.id) + '\',false)">拒绝</button>'
         + '<button class="btn" style="background:#2f6fd0;color:#fff;border-color:#2f6fd0" onclick="apDecide(\'' + esc(x.id) + '\',true)">同意</button>'

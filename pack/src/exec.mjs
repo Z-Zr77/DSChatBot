@@ -118,7 +118,10 @@ export async function run(argv, opts = {}) {
   if (/[\\/]/.test(exe0)) return { ok: false, err: '命令只能用名称，不能用路径：' + exe0 };
   const low = exe0.toLowerCase().replace(/\.exe$/, '');
   const allow = (Array.isArray(opts.allow) && opts.allow.length ? opts.allow : DEFAULT_ALLOW).map((x) => String(x).toLowerCase().replace(/\.exe$/, ''));
-  if (!allow.includes(low)) return { ok: false, err: '命令不在白名单：' + exe0 + '（可用：' + allow.slice(0, 12).join('、') + '…）' };
+  if (!allow.includes(low)) return { ok: false, err: '命令不在白名单：' + exe0
+      + '（现在只有：' + allow.join('、') + '）'
+      + '。要加就往设置 work.exec.allow 里加一条，比如 "tar"；'
+      + '只读目录、改错别字、复制移动删除文件这些不用跑命令，直接用读/写/移动那几个工具就行。' };
 
   const line = argv.map(String).join(' ');
   if (DENY.test(line)) return { ok: false, err: '命令含危险片段，已拒绝：' + line };
