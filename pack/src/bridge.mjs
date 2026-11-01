@@ -1,3 +1,4 @@
+import * as moments from './moments.mjs';
 // DSH <-> QQ bridge (OneBot v11 over NapCat WebSocket)
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -1996,6 +1997,15 @@ function clearPending(uin) {
 function noteIncoming(conv, text = '', refImg = '') {
   const uin = String(memKeyOf(conv));
   const ps = (pstate[uin] ||= {});
+  const relationship = moments.relationshipFor(conv, cfg.ownerUin, personaText(12000));
+  if (relationship) {
+    const events = moments.detect({ text, hour: Math.floor(settings.nowMinutes() / 60), lastUserAt: ps.lastUserAt });
+    ps.moment = { relationship, events, at: Date.now() };
+    ps.momentQuietUntil = moments.quietUntil(events);
+  } else {
+    delete ps.moment;
+    delete ps.momentQuietUntil;
+  }
   ps.lastUserAt = Date.now();
   ps.lastMsgTime = Math.max(Number(ps.lastMsgTime) || 0, Math.floor(Date.now() / 1000));
   // 他发来的图留个指针 + 用途：衣服 / 画稿截图 / 不知道。
@@ -3193,6 +3203,7 @@ function withConvLock(key, fn) {
 
 // 对外仍然是 reply(...)，所有调用点（flush / 主动消息 / 本地通道）都自动串行
 async function reply(conv, body, extras = {}) {
+  if (extras.proactive && moments.relationshipFor(conv, cfg.ownerUin, personaText(12000)) && moments.isQuiet(pstate[memKeyOf(conv)])) return;
   const key = convKey(conv);
   const lkey = lockKeyOf(conv);
   if (extras.proactive && (busy.has(key) || __chains.has(lkey))) {
@@ -3376,6 +3387,7 @@ async function replyNowInner(conv, body, extras = {}) {
         demandNote(mk),
         lessonsNote,
         tabooBlock,
+        !extras.proactive && moments.relationshipFor(conv, cfg.ownerUin, personaText(12000)) ? moments.render(pstate[mk]) : '',
         sleepNote(mk),
         sleepOff() ? NO_SLEEP_NOTE : '',
         wakeLine,
@@ -3429,6 +3441,7 @@ async function replyNowInner(conv, body, extras = {}) {
         demandNote(mk),
         lessonsNote,
         tabooBlock,
+        !extras.proactive && moments.relationshipFor(conv, cfg.ownerUin, personaText(12000)) ? moments.render(pstate[mk]) : '',
         sleepNote(mk),
         sleepOff() ? NO_SLEEP_NOTE : '',
         wakeLine,
@@ -4051,6 +4064,7 @@ async function outreachLeaveTick() {
     if (!owner) return;
     const s = pstate[owner];
     if (!s || !s.herThread) return;
+    if (moments.relationshipFor({ kind: 'private', id: owner }, cfg.ownerUin, personaText(12000)) && moments.isQuiet(s)) return;
     const now = Date.now();
     const th = s.herThread;
     if (!outreach.isLive(th, now)) return;
