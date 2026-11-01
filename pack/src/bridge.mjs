@@ -38,6 +38,7 @@ import * as imageintent from './imageintent.mjs';
 import * as scenes from './scenes.mjs';
 import * as daily from './daily.mjs';
 import * as life from './life.mjs';
+import * as outreach from './outreach.mjs';
 import { agedLog, splitInner } from './timing.mjs';
 import * as brain from './brain.mjs';
 import * as apibrain from './apibrain.mjs';
@@ -677,7 +678,7 @@ function lastPlace(uin) {
 // 所以她说"不穿""不拍"，说多少遍都一样。现在次数和硬度会变成一句明确的话塞给她。
 const DEMAND_KINDS = [
   ['clothes', /(换|脱|改).{0,10}(衣服|衣裳|装|裙|衣)|换(?:了|过)?(?:一)?[件身套]|换上|穿(?:这|那)(?:个|套|件)|别穿/],
-  ['selfie', /(自拍|拍照|照片|拍一?张|拍给|看看你|看看她|看你一眼|镜头|拍个)/],
+  ['selfie', imageintent.PHOTO_ASK],
   ['voice', /(语音|发段?话|说句话|想听你(说|唱)|听听你的声音)/],
   ['place', /(在哪|在哪呢|人在哪|到哪了|回家没|到家没|在干嘛)/],
   ['show', /((给|让)我看|发我|秀一个|展示一下|拍给我看)/],
@@ -713,6 +714,28 @@ function ownerDemands(uin) {
 
 function ownerAskedChange(uin) {
   return (ownerDemands(uin).kinds.clothes || 0) > 0;
+}
+
+// 主人要照片：这句里直接要了，或者最近半小时里要过（窗口流水 + 聊天记录）。
+function ownerWantsPhotoNow(conv, uin, userText) {
+  if (!conv || conv.kind === 'group') return false;
+  if (conv.kind !== 'local') {
+    const owner = String(cfg.ownerUin || '');
+    if (!owner || String(conv.id) !== owner) return false;
+  }
+  if (imageintent.PHOTO_ASK.test(String(userText || ''))) return true;
+  try { if ((ownerDemands(uin).kinds.selfie || 0) > 0) return true; } catch {}
+  try {
+    const from = Date.now() - 30 * 60e3;
+    const rows = chatlog.recent(uin, 40) || [];
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const r = rows[i];
+      if (!r || r.dir !== 'in' || r.type !== 'text') continue;
+      if (!(Number(r.at) >= from)) continue;
+      if (imageintent.PHOTO_ASK.test(String(r.text || ''))) return true;
+    }
+  } catch {}
+  return false;
 }
 
 // 强度够了就把话说明白：这不是"随便说说"，别再拿脾气当情趣
@@ -1599,10 +1622,14 @@ function drawHint() {
 
 let lastSelfieFailAt = 0;
 
-async function sendDrawing(conv, desc) {
+async function sendDrawing(conv, desc, extra = {}) {
   try {
     const cfgD = settings.load().draw || {};
-    if (cfgD.enabled === false) { log('[draw] 已关闭画图'); return; }
+    if (cfgD.enabled === false) {
+      log('[draw] 已关闭画图');
+      if (extra && extra.owed) await sendMsg(conv, '画不了，这边关着');
+      return;
+    }
     const q = drawQuota();
     if (q.left() <= 0) { log('[draw] 今天画满了'); await sendMsg(conv, '今天画够了，明天再画'); return; }
     const subj = imageintent.subjectOf(desc);
@@ -1640,10 +1667,16 @@ async function sendDrawing(conv, desc) {
   }
 }
 
-async function sendSelfie(conv, scene) {
+async function sendSelfie(conv, scene, extra = {}) {
+  const owed = !!(extra && extra.owed);
   try {
     const cfgD = settings.load().draw || {};
-    if (cfgD.enabled === false) { log('[selfie] 画图已关闭'); return; }
+    if (cfgD.enabled === false) {
+      log('[selfie] 画图已关闭');
+      // 她刚答应要发：不能一声不吭。没答应的随手拍仍保持安静，避免关着画图时刷屏。
+      if (owed) await sendMsg(conv, '拍不了，相机没开');
+      return;
+    }
     const q = drawQuota();
     if (q.left() <= 0) {
       log('[selfie] 今天拍够了');
@@ -1799,12 +1832,14 @@ async function sendSelfie(conv, scene) {
   } catch (e) {
     // 空 message 会打出 "fail " 什么都看不出来；把 err 类型也带上，日志里能查
     log('[selfie] fail', e.message || (e && e.name) || String(e));
-    // 画不出来也要给个话，不能让对方干等（10 分钟内只抱怨一次，免得刷屏）
-    if (Date.now() - lastSelfieFailAt > 10 * 60 * 1000) {
-      lastSelfieFailAt = Date.now();
-      const short = /404|not found|NotFound/i.test(e.message) ? '相机好像坏了' : '卡住了';
-      await sendMsg(conv, `拍不出来，${short} / 等下再试`);
-    }
+    // 没人等的随手拍：10 分钟内只抱怨一次，免得刷屏。
+    // 她这轮答应了要发的：同一轮必须说一声，不能再被这 10 分钟吃掉。
+    const quiet = !owed && Date.now() - lastSelfieFailAt <= 10 * 60 * 1000;
+    if (quiet) return;
+    lastSelfieFailAt = Date.now();
+    const msg = String((e && e.message) || '');
+    const short = /404|not found|NotFound/i.test(msg) ? '相机好像坏了' : '卡住了';
+    await sendMsg(conv, `拍不出来，${short} / 等下再试`);
   }
 }
 
@@ -1813,7 +1848,7 @@ function sceneFileUrl(file) {
 }
 
 // [[场景: 家]] 有旧图就直接发；[[场景: 家 | 描述]] / [[场景更新: 家 | 描述]] 才（重新）画
-async function sendScene(conv, spec) {
+async function sendScene(conv, spec, extra = {}) {
   try {
     const raw = String(spec && spec.raw || '').trim();
     if (!raw) return;
@@ -1822,7 +1857,11 @@ async function sendScene(conv, spec) {
     const desc = String(descRaw || '').trim();
     if (!name) return;
     const cfgD = settings.load().draw || {};
-    if (cfgD.enabled === false) { log('[scene] 画图已关闭'); return; }
+    if (cfgD.enabled === false) {
+      log('[scene] 画图已关闭');
+      if (extra && extra.owed) await sendMsg(conv, '这地方拍不了，画图关着');
+      return;
+    }
 
     const old = scenes.find(name);
     const wantNew = !!spec.force || (!old && desc);
@@ -1977,9 +2016,79 @@ function noteIncoming(conv, text = '', refImg = '') {
   // 他这条里如果明确点了"要你穿这身"，先记成待完成的目标；她说"换好了"时再落实
   const ow = imageintent.outfitOf(text);
   if (ow.explicit) { ps.pendingOutfit = ow.text; log('[wear] 记下他要的那身:', ow.text); }
+  // 他回了：招呼算被接住（pendingSince 清掉），但这场若是她开的，仍然开着，而且轮到她了。
+  if (ps.herThread) ps.herThread = outreach.noteHim(ps.herThread, Date.now());
   saveP();
   clearPending(uin);
   return ps;
+}
+
+// 只对主人：群聊、别人的私聊不走这套「别装没看见」。
+function ownerFacing(conv) {
+  if (!conv || conv.kind === 'group') return false;
+  const id = String(memKeyOf(conv) || '');
+  const owner = String(cfg.ownerUin || '').trim();
+  if (conv.kind === 'local') return !owner || id === owner || id === 'local';
+  return !!owner && id === owner;
+}
+function herThreadOf(uin) {
+  return (pstate[String(uin || '')] || {}).herThread || null;
+}
+function saveHerThread(uin, thread) {
+  const s = (pstate[String(uin)] ||= {});
+  s.herThread = thread;
+  saveP();
+}
+// 这场是她先开的，而且现在轮到她（含刚说要走、他立刻追一句）
+function outreachHold(conv, uin) {
+  if (!ownerFacing(conv)) return false;
+  const id = String(uin || memKeyOf(conv) || '');
+  return outreach.mustAnswer(herThreadOf(id), Date.now());
+}
+function currentLeaveReason(uin) {
+  try {
+    if (mind.isAsleep(uin)) return { reason: 'sleep', what: '' };
+    const st = mind.load(uin);
+    if (Number(st && st.energy) < 20) return { reason: 'sleep', what: '' };
+    const pull = outreach.schedulePull(planCache, daily.nowHM(), { graceMin: 12 });
+    if (pull && pull.reason === 'sleep') return { reason: 'sleep', what: pull.what || '' };
+    if (pull) return { reason: 'life', what: pull.what || '' };
+  } catch {}
+  return { reason: 'busy', what: '' };
+}
+// 已经在说再见的这场，别再叠一句
+const __leavingNow = new Set();
+async function speakLeave(conv, mk, reason, mstate, opts = {}) {
+  const id = String(mk || '');
+  if (!id || __leavingNow.has(id)) return null;
+  const prev = herThreadOf(id);
+  if (prev && prev.left && !opts.again) return null;
+  __leavingNow.add(id);
+  const what = opts.what || '';
+  const line = outreach.leaveLine(reason, Date.now(), what);
+  try {
+    if (prev) saveHerThread(id, outreach.noteHerReply(prev, Date.now(), { leaving: true }));
+    log('[outreach] 这场没说完，先把离开说出来', id, reason, line);
+    await sendBubbles(conv, line);
+    try {
+      const st = mstate || mind.load(id);
+      if (!mstate && opts.incoming !== false) mind.bump(st, { type: 'user_msg' });
+      mind.bump(st, { type: 'my_reply' });
+      mind.save(id, st);
+    } catch {}
+    // 已经睡着就别把这一觉重排；说了去睡且还醒着，才真睡下。
+    // 不用 mind.goSleep(mk, hrs) 这个写法：睡眠回归要靠「先 save(mstate) 再 goSleep(mk, hrs)」那一处的顺序。
+    if (reason === 'sleep' && !mind.isAsleep(id)) {
+      try { mind.goSleep(id, 7); log('[outreach] 说了去睡，真睡下', id); } catch {}
+    }
+    return line;
+  } catch (e) {
+    if (prev) saveHerThread(id, prev);
+    log('[outreach] 离开没说出去', id, e.message);
+    return null;
+  } finally {
+    __leavingNow.delete(id);
+  }
 }
 
 // 最近他发来的参考图（兜底用；现在选图主要靠 refForClothes）
@@ -2050,7 +2159,8 @@ function replyDelay(isGroup, text) {
   else if (roll < 0.93) ms = 20000 + Math.random() * 70000;           // 在忙：20 秒到 1 分半
   else ms = 120000 + Math.random() * 360000;                          // 手机不在手边：2–8 分钟
 
-  // 不回：只挑那种"可回可不回"的闲话，正事、问句、让他做的事一律要回
+  // 不回：只挑那种"可回可不回"的闲话，正事、问句、让他做的事一律要回。
+  // 她自己先开的那场不在这里判：queueReply 看到 outreachHold 会把 skip 关掉。
   const casual = !/[?？]/.test(d) && d.length <= 30 && !/(帮|给我|看看|发我|拍|记得|明天|几点|在哪|怎么|为啥|为什么|能不能|可以|好不)/.test(d);
   const skip = casual && Math.random() < 0.12 && delayScale() > 0;
   return { ms: Math.round(Math.min(480000, ms) * delayScale()), skip };
@@ -2898,6 +3008,15 @@ function queueReply(key, conv, line, rawText, opts = {}) {
   }
   if (buf.neverSpoke) plan = { ms: 1500 + Math.floor(Math.random() * 2500), skip: false };
 
+  // 这场是她先开的、还轮到她：闲话也要接。装没看见就是把他晾在她自己挑起的话里。
+  if (outreachHold(conv)) {
+    const next = outreach.planSkip(plan, true);
+    if (plan && plan.skip && next && !next.skip) {
+      try { log('[outreach] 这场是她开的，不能装没看见', key); } catch {}
+    }
+    plan = next;
+  }
+
   // 她这次真没回：不假装看到了
   if (allowSkip && plan.skip && !buf.late) {
     buffers.delete(key);
@@ -3090,6 +3209,8 @@ async function replyNow(conv, body, extras = {}) {
 
 async function replyNowInner(conv, body, extras = {}) {
   __lastReplyAt = Date.now();
+  // 后面会把时间纠正、忘词提示拼进 body，要照片与否只看他原话。
+  const __userSaid = String(body || '');
   // 他这句要的是全身还是半身，先记下来：她自己的画面描述经常只有"坐在床边"，
   // 光靠描述判机位就会把"你拍张全身照"拍成半身。
   try { const fw = self.frameFromText(body); if (fw) self.setFrame(fw); } catch {}
@@ -3103,6 +3224,13 @@ async function replyNowInner(conv, body, extras = {}) {
       extras.wakeNote = '他是连着敲了几次把你叫醒的，你还没睡够，说话有点懵——先应一声。';
       log('[sleep] 被叫醒', mkSleep, 'knocks', knocks);
     } else {
+      // 这场还是她开的、她还没说要睡：先把离开说出来，再继续睡。已经道过别的，就安静。
+      const thSleep = herThreadOf(mkSleep);
+      if (!extras.dry && ownerFacing(conv) && outreach.isLive(thSleep, Date.now()) && thSleep.owed) {
+        log('[sleep] 睡着了，但这场是她开的，先说一声', mkSleep, 'knocks', knocks);
+        const said = await speakLeave(conv, mkSleep, 'sleep', null, { incoming: true });
+        if (said) return said;
+      }
       log('[sleep] 她睡着了，这条不回', mkSleep, 'knocks', knocks);
       return null;
     }
@@ -3192,6 +3320,16 @@ async function replyNowInner(conv, body, extras = {}) {
       : '【对方刚撤回了一条消息】他自己撤的，随口提一句就行，别追问。')
     : '';
   if (rh) recallHint.delete(convKey(conv));
+  const __hold = !extras.proactive && outreachHold(conv, mk);
+  const __holdWhy = __hold ? currentLeaveReason(mk) : null;
+  const holdLine = !__hold ? '' : [
+    '【这场是你先找他的】他还在等你接话。不许装没看见，不许只输出 [[跳过]]。',
+    __holdWhy && __holdWhy.reason === 'sleep'
+      ? '你这会儿撑不住了。要睡就用一句人话说你去睡，并留一句醒了再接；还想聊就接着聊。'
+      : __holdWhy && __holdWhy.reason === 'life'
+        ? `你的日程刚到「${__holdWhy.what || '下一件事'}」。要去就用一句人话说你去干嘛，并留一句回头接着聊的话；不走就正常接他。`
+        : '真要离开（困了、有事、到点了）就用一句人话说明，并留一句回头接着聊的话。不走就正常接。',
+  ].join('');
   const content = extras.proactive
     ? [
         timeContext(conv.id),
@@ -3302,6 +3440,7 @@ async function replyNowInner(conv, body, extras = {}) {
             ? '这是群里别人在聊，不是非你不可。想接就接一句，插不上、或者觉得没必要，就只输出 [[跳过]]（一个字都别发）。'
             : '直接给出要发到群里的回复正文，短一点，一句话为主。真插不上、或者觉得没必要接，就只输出 [[跳过]]。')
           : '直接给出要发到 QQ 的回复。想说的拆成短消息，用换行分开。\n【分条规矩】像真人打字那样：随口一句就一条；想到第二句就再发一条，两句之间可以隔一会儿；偶尔一口气说三句也行。别为了分条而分条，也别把想说的话硬压成一句——长短由内容决定，没有字数规定。\n真不想理、或者实在没什么好说的，可以只输出 [[跳过]]（那就一个字都不发）。要不要回你自己定。\n也可以一个字都不写，只发一个表情/一张图/一条语音——那种时候别写「……」占位。',
+        holdLine,
         '情绪到位的话就配一个表情：优先 QQ 小黄脸（最后单独一行 `[[FACE:id]]`，如 `[[FACE:22]]` 白眼），偶尔用颜文字（直接写句子里，如 (￣▽￣)）。一条消息最多一个，平淡的句子别硬加。',
         '这轮他说了值得长期记住的事（名字、称呼、喜好、雷区、约定），就在最后单独一行加 `[[MEMO: …]]`；特别不能忘的用 `[[MEMO!: …]]`。没有就不加。',
         '【记错要改】如果你记的旧情况和他刚说的对不上（换城市、换工作、毕业了不再是学生、分手、改名字、戒烟了），就先删旧的：最后单独一行写 `[[FORGET: 旧记忆里的关键词]]`，再用 `[[MEMO: …]]` 记新的。要删的是核心记忆（主人/生日这类）就用 `[[FORGET!: 关键词]]`。同一件事只留最新一条，别新旧并存。',
@@ -3445,17 +3584,30 @@ async function replyNowInner(conv, body, extras = {}) {
   let memos = P0.memos;
   const skipHit = cleaned0.match(/\[\[\s*(?:跳过|不回|SKIP)\s*\]\]/i);
   let cleaned = cleaned0.replace(/\[\[\s*收藏\s*\]\]/g, '').trim();
+  let forcedLeave = null;
+  let pinnedLeave = '';
   if (skipHit) {
     cleaned = cleaned.replace(/\[\[\s*(?:跳过|不回|SKIP)\s*\]\]/gi, '').trim();
     if (!cleaned) {
-      const peek = String(body || '').replace(/\s+/g, ' ').slice(0, 60);
-      log('[skip]', conv.kind === 'group' ? ('群' + conv.id) : conv.id, '她没回这句：', peek);
-      if (!extras.dry) {
-        try { mind.bump?.(mind.load(mk), { type: 'ignored' }); } catch {}
+      if (!extras.proactive && outreachHold(conv, mk)) {
+        const sleepTag = /\[\[\s*(?:睡了|去睡|睡觉|睡|SLEEP)\b/i.test(visible);
+        const why = sleepTag ? { reason: 'sleep', what: '' } : currentLeaveReason(mk);
+        cleaned = outreach.leaveLine(why.reason, Date.now(), why.what);
+        finalRaw = cleaned;
+        pinnedLeave = cleaned;
+        forcedLeave = why;
+        log('[outreach] 她标了跳过，这场是她开的，改成离开', mk, why.reason);
+      } else {
+        const peek = String(body || '').replace(/\s+/g, ' ').slice(0, 60);
+        log('[skip]', conv.kind === 'group' ? ('群' + conv.id) : conv.id, '她没回这句：', peek);
+        if (!extras.dry) {
+          try { mind.bump?.(mind.load(mk), { type: 'ignored' }); } catch {}
+        }
+        return null;
       }
-      return null;
+    } else {
+      log('[skip]', conv.kind === 'group' ? ('群' + conv.id) : conv.id, '标了跳过，但还写了别的，按正文发：', cleaned.slice(0, 40));
     }
-    log('[skip]', conv.kind === 'group' ? ('群' + conv.id) : conv.id, '标了跳过，但还写了别的，按正文发：', cleaned.slice(0, 40));
   }
   const wantKeep = /\[\[\s*收藏\s*\]\]/.test(cleaned0);
   if (wantKeep) {
@@ -3592,16 +3744,58 @@ async function replyNowInner(conv, body, extras = {}) {
       }
     }
   }
+  // 嘴上答应了发照片、正文里却没有自拍/画/场景标签：按她这句话补拍。
+  // 没人要、她在拒绝、或者说的是改天，就不补。
+  let photoMust = false;
+  {
+    const sayNow = String(out || '').trim();
+    const photoOwed = ownerWantsPhotoNow(conv, mk, __userSaid);
+    const photoClaim = imageintent.claimsIncomingPhoto(sayNow, { asked: photoOwed });
+    const photoTagged = !!((ex.selfies || []).length || ex.draws.length || (ex.scenes || []).length);
+    if (photoOwed && photoClaim && !photoTagged) {
+      const scene = imageintent.sceneHintFromReply(sayNow) || '随手一张';
+      ex.selfies = [scene];
+      log('[selfie] 答应了要发，没有图标签，补拍', scene.slice(0, 40));
+    }
+    photoMust = photoOwed && (photoClaim || photoTagged);
+  }
+  // 她先开的这场还没结束：空话 / 省略号 / 只写了去睡的标签，都不能变成沉默。
+  let sealedLeave = false;
+  if (!extras.proactive && outreachHold(conv, mk)) {
+    const mediaOut = !!(ex.faces.length || ex.stickerFiles.length || ex.draws.length || (ex.selfies || []).length || (ex.scenes || []).length || ex.voice);
+    const sealed = outreach.sealReply(String(out || ''), {
+      sleepHours: ex.sleepHours,
+      media: mediaOut,
+      why: forcedLeave || currentLeaveReason(mk),
+      pinned: pinnedLeave,
+      now: Date.now(),
+    });
+    if (sealed.text !== String(out || '').trim()) log('[outreach] 补上离开', mk, sealed.reason || '');
+    if (sealed.leave) {
+      out = sealed.text;
+      sealedLeave = true;
+      if (sealed.sleep && !ex.sleepHours && !mind.isAsleep(mk)) ex.sleepHours = 7;
+      if (!forcedLeave) forcedLeave = { reason: sealed.reason || 'busy', what: '' };
+    }
+  }
   if (extras.dry) {
     log('[probe] ->', String(out).replace(/\n/g, ' / ').slice(0, 300) || '(只发媒体)');
     return { out, raw: r.text, inner: inner || '', memos, faces: ex.faces, stickers: ex.stickerFiles, voice: !!ex.voice, draws: ex.draws, selfies: ex.selfies, attachments: ex.attachSpecs || [] };
   }
   try { __lastOut.set(convKey(conv), String(out || '').trim()); } catch {}
   log('-> reply', convKey(conv), out.length, 'memos', memos.length, 'face', ex.faces.length, 'sticker', ex.stickerFiles.length, 'voice', ex.voice, '|', String(out).replace(/\n/g, ' / ').slice(0, 300) || '(只发媒体)');
-  const sayText = String(out || '').trim();
+  let sayText = String(out || '').trim();
   if (ex.voice && lv < 2 && sayText) await sendVoice(conv, sayText);
   else if (sayText) {
-        if (Date.now() - __staleT0 > 240000) { log('[lock] 结果已过期，丢弃:', convKey(conv)); return null; }
+        if (Date.now() - __staleT0 > 240000) {
+          const newer = pendingSay.has(convKey(conv));
+          // 她先找的他、这句还欠着，而且后面没有更新的消息：说慢了也要说出去，不许把回复扔掉。
+          if (newer || !outreachHold(conv, mk)) {
+            log('[lock] 结果已过期，丢弃:', convKey(conv), newer ? '后面还有新的' : '');
+            return null;
+          }
+          log('[lock] 过了 4 分钟，但这场是她开的、他还在等，照发', convKey(conv));
+        }
         await sendBubbles(conv, sayText);
       }
   for (const id of ex.faces) await sendFace(conv, id);
@@ -3613,9 +3807,9 @@ async function replyNowInner(conv, body, extras = {}) {
   }
   // 复查 F05/F06：附件也走任务入口固定的授权，停止/重开之后不再借新授权
   for (const a of (ex.attachSpecs || [])) await sendAttachment(conv, a, __pinned);
-  for (const d of ex.draws) await sendDrawing(conv, d);
-  for (const s of (ex.selfies || [])) await sendSelfie(conv, s);
-  for (const sc of (ex.scenes || [])) await sendScene(conv, sc);
+  for (const d of ex.draws) await sendDrawing(conv, d, { owed: photoMust });
+  for (const s of (ex.selfies || [])) await sendSelfie(conv, s, { owed: photoMust });
+  for (const sc of (ex.scenes || [])) await sendScene(conv, sc, { owed: photoMust });
   if (conv.kind === 'group') gfAfterSpeak(conv.id);   // 说过话就把续聊窗口续上
   mind.bump(mstate, { type: extras.proactive ? 'proactive' : 'my_reply' });
   mind.save(mk, mstate);
@@ -3631,6 +3825,26 @@ async function replyNowInner(conv, body, extras = {}) {
     } catch {}
     const r = mind.goSleep(mk, hrs);
     log('[sleep] 她说去睡了' + (again ? '（刚被叫醒，算同一觉，只睡 ' + r.hrs + ' 小时）' : ''), mk, r.hrs + ' 小时，约 ' + new Date(r.until).toTimeString().slice(0, 5) + ' 醒');
+  }
+  if (ownerFacing(conv)) {
+    try {
+      const spoke = !!(sayText || ex.faces.length || ex.stickerFiles.length || ex.draws.length || (ex.selfies || []).length || (ex.scenes || []).length || ex.voice);
+      if (extras.proactive) {
+        if (spoke) {
+          let th = outreach.openByHer(Date.now());
+          const leaving = !!(ex.sleepHours) || outreach.looksLikeLeave(sayText);
+          if (leaving) th = outreach.noteHerReply(th, Date.now(), { leaving: true });
+          saveHerThread(mk, th);
+          log('[outreach] 她先开了这场', mk, leaving ? '说了要走' : '');
+        }
+      } else if (spoke || sealedLeave) {
+        const th = herThreadOf(mk);
+        if (th && (th.owed || th.open || outreach.isLive(th, Date.now()) || outreach.inLeaveGrace(th, Date.now()))) {
+          const leaving = !!(ex.sleepHours) || sealedLeave || outreach.looksLikeLeave(sayText);
+          saveHerThread(mk, outreach.noteHerReply(th, Date.now(), { leaving }));
+        }
+      }
+    } catch (e) { log('[outreach] 记这场失败', e.message); }
   }
   return out;
 }
@@ -3793,6 +4007,39 @@ async function wakeTick() {
       }).catch((e) => log('[sleep] wake reply fail', e.message));
     }
   } catch (e) { log('[sleep] tick fail', e.message); }
+}
+
+// 她先开的那场还热着，日程或睡眠把她拉开：不等他再敲，先说一声再走。
+async function outreachLeaveTick() {
+  try {
+    const owner = String(cfg.ownerUin || '').trim();
+    if (!owner) return;
+    const s = pstate[owner];
+    if (!s || !s.herThread) return;
+    const now = Date.now();
+    const th = s.herThread;
+    if (!outreach.isLive(th, now)) return;
+    if (now - Number(th.lastTurnAt || th.at || 0) > 25 * 60e3) return;
+    if (busy.has('local:' + owner) || busy.has('private:' + owner) || __chains.has('u:' + owner)) return;
+    const asleep = mind.isAsleep(owner);
+    // 还欠他一句、人又醒着：下一轮回复会接住，这里不插嘴。
+    if (th.owed && !asleep) return;
+    let reason = '';
+    let what = '';
+    if (asleep) reason = 'sleep';
+    else {
+      const pull = outreach.schedulePull(planCache, daily.nowHM(), { graceMin: 12 });
+      if (pull) {
+        reason = pull.reason === 'sleep' ? 'sleep' : 'life';
+        what = pull.what || '';
+      }
+    }
+    if (!reason) return;
+    const ch = channels.pick(['qq', 'local']);
+    if (!ch) return;
+    const conv = channels.convOn(ch, owner, cfg.ownerUin);
+    await speakLeave(conv, owner, reason, null, { incoming: false, what });
+  } catch (e) { log('[outreach] leave tick', e.message); }
 }
 
 async function proactiveTick() {
@@ -4054,6 +4301,7 @@ setInterval(() => { if (fs.existsSync(QZ_FORCE)) qzoneTick(); }, 15 * 1000);
 setInterval(() => { if (fs.existsSync(FORCE_FILE)) proactiveTick(); }, 10 * 1000);
 setTimeout(proactiveTick, 60 * 1000); // 启动 1 分钟后试一次
 setInterval(() => { wakeTick().catch(() => {}); }, 5 * 60 * 1000); // 睡到点就醒
+setInterval(() => { outreachLeaveTick().catch(() => {}); }, 60 * 1000); // 她先开的场，被日程拉开时先说一声
 // 备份：启动 60 秒后如果距上次超过 20 小时就跑一次；之后每天 04:05 左右再检查
 setTimeout(() => {
   try {
