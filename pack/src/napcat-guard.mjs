@@ -182,6 +182,24 @@ function hasTask() {
     execFile('schtasks.exe', ['/query', '/tn', TASK_NAME], { windowsHide: true, timeout: 8000 }, (err) => resolve(!err));
   });
 }
+// 重拉之前先把上一份内核收掉：/run 只是再启动一次，不会结束旧实例。
+// 一天下来会堆出十几个 NapCatWinBootMain + 几十个 QQ.exe（2026-11-01 实测 17/68），
+// 旧实例还占着单端登录，新实例反而登不上、二维码互相挤掉。
+// 只杀 NapCatWinBootMain 的进程树：它拉起的 QQ 是它的子进程，会一起走；
+// 不按 QQ.exe 名字杀，免得连用户自己的 QQ 一起干掉。
+function killKernel() {
+  return new Promise((resolve) => {
+    execFile('schtasks.exe', ['/end', '/tn', TASK_NAME], { windowsHide: true, timeout: 8000 }, () => {
+      execFile('taskkill.exe', ['/F', '/T', '/IM', 'NapCatWinBootMain.exe'], { windowsHide: true, timeout: 15000 }, (err, out, errOut) => {
+        const text = String(out || errOut || '').trim();
+        const had = !err || !/not found|没有找到|找不到/i.test(text);
+        if (had) log('重拉前收掉旧内核：', text.split(String.fromCharCode(10))[0].slice(0, 120));
+        resolve(true);
+      });
+    });
+  });
+}
+
 function runTask() {
   return new Promise((resolve) => {
     execFile('schtasks.exe', ['/run', '/tn', TASK_NAME], { windowsHide: true, timeout: 15000 }, (err, _o, errOut) => {
@@ -233,6 +251,7 @@ async function tryRestart(reason) {
   needManual = false;
   log('通过计划任务重启内核：', reason);
   saveState();
+  await killKernel();
   await runTask();
   downSince = 0;
   notLoggedSince = 0;

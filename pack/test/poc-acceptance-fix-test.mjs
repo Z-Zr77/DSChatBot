@@ -125,3 +125,13 @@ test('补2 /work/start 的能力由档位决定，客户端传的 caps 不再说
   assert.match(br, /if \(m && MODE_CAPS\[m\]\) return m;/, 'b.mode 合法就用它');
   assert.match(br, /workCfg\(\)\.defaultMode/, '没传 mode 就退回设置里存的档位');
 });
+
+test('补3 guard 重拉内核前必须先收掉上一份（否则一天堆十几个实例，旧实例还占着登录）', () => {
+  const g = read('napcat-guard.mjs');
+  assert.match(g, /function killKernel\(\)/, '要有 killKernel');
+  assert.match(g, /'\/end', '\/tn', TASK_NAME/, '先 /end 结束任务');
+  assert.match(g, /taskkill\.exe', \['\/F', '\/T', '\/IM', 'NapCatWinBootMain\.exe'\]/, '只杀 NapCatWinBootMain 的进程树，不按 QQ.exe 名字杀');
+  const iKill = g.indexOf('await killKernel();');
+  const iRun = g.indexOf('await runTask();');
+  assert.ok(iKill > 0 && iRun > iKill, 'killKernel 必须在 runTask 之前');
+});
