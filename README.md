@@ -32,7 +32,7 @@ Windows · 本地数据 · 你自己的模型 Key · [MIT](LICENSE)
 
 | | |
 |---|---|
-| 规模 | 运行时约 16k 行（Node ESM，**无构建步骤**）、42 个测试套件 |
+| 规模 | 运行时约 16k 行（Node ESM，**无构建步骤**）、43 个测试套件 |
 | 进程 | Electron 主进程 + 控制台（3070）+ 桥接（3098）+ 聊天窗（3210）；接 QQ 走 OneBot v11（NapCat） |
 | 存储 | 纯文件（JSON + JSONL），无数据库；升级 / 卸载都不动 `data/` |
 | 模型 | 任意 OpenAI 兼容接口；画图/视觉、TTS 各接各的服务商，可以混用 |
@@ -125,7 +125,7 @@ Windows · 本地数据 · 你自己的模型 Key · [MIT](LICENSE)
 git clone https://github.com/Z-Zr77/DSChatBot.git
 cd DSChatBot/pack
 npm install
-npm test          # 42 个测试套件
+npm test          # 43 个测试套件
 node launch.mjs   # 开发模式：控制台 + 桥接 + 聊天窗
 ```
 
