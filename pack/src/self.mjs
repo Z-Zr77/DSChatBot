@@ -87,7 +87,7 @@ function prompts() {
     selfie: '手机前置摄像头自拍：单人，近景，脸占画面主导，只拍上半身或肩部以上；不要出现手机本身、不要手机屏幕边框、不要对着镜子拍、不要画中画；手最多露一点手指边缘，没有手也行。',
     // 她两只手都要拿东西（水瓶、零食袋、伞…）时不能再说"举着手机自拍"——模型会多画一只举手机的手
     selfieBusy: '手机放在货架/桌面/支架上定时拍的近景（画面里没有手机、也没有举手机的手臂）：她两只手都在拿东西，一只手拿一样；画面里只出现她的两只手、两条胳膊，绝不能出现第三只手、第四条胳膊或多余的手指。',
-    selfieFull: '全身照机位：手机放在支架或桌面上、前置摄像头定时拍摄（不是手举着），从头到脚完整入画、头顶和脚都别裁掉，人物站在画面中间占七成高度，能看见脚下地面和身后环境。',
+    selfieFull: '全身照（不是自拍）：像有人在旁边拿手机替她拍下这一刻，从头到脚整个人都在画面里——头顶、手、脚和脚下地面都别裁掉，人物占画面高度八成左右，能看见身后的环境。只拍到腰、只到膝盖、半身，都算画错。',
     selfieBan: '禁止：文字、边框、多格拼图、贴纸、设定稿或立绘、手机或屏幕出现在画面里、镜子与画中画、夸张大特写的手、多条胳膊或畸形手指。',
     ref: '参考图只是设定稿：只参考这个人的长相、发型、耳鳍、服装和配色，绝不要复制参考图的白色背景、正面/侧面/背面三视图排版、全身立绘或线稿风格。',
     scene: '环境细节要有生活痕迹（家具、杂物、光源），构图自然，像随手拍的。',
@@ -186,6 +186,40 @@ export function extractSelfies(text) {
   return { cleaned, selfies: out.slice(0, 1) };
 }
 
+// 他这句话要的是全身还是半身。他明说了就按他说的，别让她自己的描述把人拍成半截。
+const FULL_ASK = /(全身|整身|从头到脚|站起来|站全身|全身照|露腿|露脚|鞋子|脚下)/;
+const HALF_ASK = /(半身|上半身|只拍上|脸就行|特写|近一点|近景)/;
+
+export function frameFromText(text) {
+  const t = String(text || '');
+  if (HALF_ASK.test(t)) return 'half';   // 先判半身："上半身"里也含"身"
+  if (FULL_ASK.test(t)) return 'full';
+  return '';
+}
+
+// 他要的机位记在磁盘上，下一张自拍用掉就清掉（换进程、重启都还在）
+const FRAME = path.join(DIR, 'frame.json');
+
+export function setFrame(kind) {
+  ensure();
+  const k = kind === 'half' ? 'half' : 'full';
+  try { fs.writeFileSync(FRAME, JSON.stringify({ kind: k, at: Date.now() }), 'utf8'); } catch {}
+  return k;
+}
+
+export function frameWant(maxAgeMs = 30 * 60e3) {
+  ensure();
+  try {
+    const j = JSON.parse(fs.readFileSync(FRAME, 'utf8'));
+    if (j && j.kind && Date.now() - (Number(j.at) || 0) < maxAgeMs) return j.kind;
+  } catch {}
+  return '';
+}
+
+export function clearFrame() {
+  try { fs.unlinkSync(FRAME); } catch {}
+}
+
 // 自拍提示词：强调"手机自拍/她本人在画面里"
 // opts.keepIn：上一张自拍的场景（有就要求沿用同一地点，只改姿势/镜头）
 const FULL_RE = /(全身|整身|从头到脚|站起来|站全身|拍个全身|拍一张全身|穿搭| outfit|outfit|露腿|鞋子|脚下)/i;
@@ -228,6 +262,7 @@ export function selfiePrompt(scene, opts = {}) {
   const wantFull = opts.full === true || opts.full === false ? opts.full : FULL_RE.test(s);
   const busy = opts.handsBusy === true;
   const cam = busy ? (P.selfieBusy || '') : (wantFull ? (P.selfieFull || '') : P.selfie);
+  // 全身时不能再叠「前置自拍、脸占主导」，两个要求打架，模型就只给半身
   const extra = wantFull
     ? '构图必须包含头顶到脚，不要只拍半身，不要腰部以上截断。'
     : '';

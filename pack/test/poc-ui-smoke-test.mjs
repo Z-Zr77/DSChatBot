@@ -76,7 +76,10 @@ try {
   if (ui.ok) {
     const html = await (await fetch(`http://127.0.0.1:${UI_PORT}/`)).text();
   const uiHtml = html;
-  check('允许她动电脑：状态页与设置页各有一个按钮，共用 paintWorkTools', uiHtml.includes('id="workToolsBtn"') && uiHtml.includes('id="sToolsBtn"') && uiHtml.includes("['#workToolsBtn', '#workToolsState'], ['#sToolsBtn', '#sToolsState']"), '缺少双入口按钮或共享绘制');
+  // 2026-11-01 改：这个开关只留「设置」页一个家。概览里再放一个，等于同一件事两个开关，
+  // 用户会以为它们各管各的（他自己就是这么问的）。概览只保留状态 + 一个跳转。
+  check('允许她动电脑只有一个开关，且只在设置页', uiHtml.includes('id="sToolsBtn"') && !uiHtml.includes('id="workToolsBtn"'), '开关还重复着');
+  check('概览里有跳到设置页的说明', /goPage\(this\.dataset\.p\)[^>]*data-p="config"/.test(uiHtml), '概览没告诉用户开关在哪');
   
     audit('控制台', html);
     check('控制台：工作模式弹窗内容不为空', /window\.__WK_INNER\s*=\s*"??[^;"']/.test(html) || /window\.__WK_INNER\s*=\s*"\\u003c/.test(html), '');

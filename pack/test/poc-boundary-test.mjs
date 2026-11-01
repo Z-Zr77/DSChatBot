@@ -148,7 +148,9 @@ await ta('F05 授权在第一次 await 之前固定（源码断言）', async ()
   const src = fs.readFileSync(new URL('../src/bridge.mjs', import.meta.url), 'utf8');
   const start = src.indexOf('async function replyNowInner');
   assert.ok(start > 0, '找不到 replyNowInner');
-  const body = src.slice(start, start + 12000);
+  // 2026-11-01：replyNowInner 前面又插了「说忘就忘」那一段，窗口放大到 24000 字符；
+  // 这里只认「授权钉在第一次大脑调用之前」这个顺序，不认具体行号。
+  const body = src.slice(start, start + 24000);
   const iPin = body.indexOf('const __taskPinned');
   // 2026-10-31：askBrain 多了第三个参数（真多轮 history），这里用正则认新签名，
   // 但"第一次大脑调用"这个锚点不能放宽——授权必须钉在它前面。

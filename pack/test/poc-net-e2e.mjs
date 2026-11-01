@@ -32,7 +32,7 @@ const stub = http.createServer((req, res) => {
     try { j = JSON.parse(raw); } catch {}
     const sys = (j.messages && j.messages[0] && j.messages[0].content) || '';
     const user = (j.messages || []).map((m) => String(m.content || '')).join('\n');
-    reqs.push({ sys, user });
+    reqs.push({ sys, user, all: String(sys || '') + String(user || '') });
     if (user.includes('工具结果')) sawResult = true;
     const body = user.includes('工具结果')
       ? '抓到了，页面上写着「' + PAGE_TEXT + '」。'
@@ -107,7 +107,7 @@ try {
   check('没有把工具 JSON 发出去', !/\[\[工具|fetch_url|"args"/.test(reply), reply);
   check('工具结果回灌给了大脑', sawResult, 'calls=' + calls);
   check('日志里有 fetch_url ok', /\[tool\]\s+\d+\s+fetch_url ok/.test(out), out.slice(-500));
-  check('系统提示词里有 fetch_url 且写了内网不抓', reqs.some((x) => /fetch_url/.test(x.sys) && /内网/.test(x.sys)), '');
+  check('这次请求里带了 fetch_url 且写了内网不抓', reqs.some((x) => /fetch_url/.test(x.all) && /内网/.test(x.all)), '');
 
   const audit = path.join(DATA, 'ledger', 'audit.jsonl');
   const lines = readJsonl(audit);

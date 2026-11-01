@@ -9,6 +9,8 @@ import { textToSilk, silkFileToWav, Asr } from './voice.mjs';
 import * as mind from './mind.mjs';
 import * as curiosity from './curiosity.mjs';
 import * as memory from './memory.mjs';
+import * as channels from './channels.mjs';
+import { ensurePersonaFile } from './persona-default.mjs';
 const MEM_EMB_CFG = () => { try { const m = settings.load().memory || {}; return m.embed || {}; } catch { return {}; } };
 // 向量的"坐标系"签名：换 embedding 模型/维度后，旧向量不能拿来算相似度（复查 F16）
 const MEM_EMB_SIG = () => { try { return memory.vecSig(MEM_EMB_CFG()); } catch { return ''; } };
@@ -30,6 +32,7 @@ import * as settings from './settings.mjs';
 import * as budget from './budget.mjs';
 import * as qzone from './qzone.mjs';
 import * as draw from './draw.mjs';
+import * as loops from './loops.mjs';
 import * as self from './self.mjs';
 import * as imageintent from './imageintent.mjs';
 import * as scenes from './scenes.mjs';
@@ -212,6 +215,7 @@ function syncPersona() {
     const lookBlock = look
       ? "\n\n## 你长什么样（这一节由控制台「她的样子」维护，别自己改）\n\n" + look + "\n\n别人问起你长相、发自拍、或你画到自己的时候，都以这段为准，不要另编。\n"
       : "";
+    fs.mkdirSync(path.dirname(AGENTS_MD), { recursive: true });   // 全新数据目录里 agent-home 还不存在
     fs.writeFileSync(AGENTS_MD, PERSONA_HEAD + body + lookBlock + PERSONA_TAIL, 'utf8');
     fs.writeFileSync(STAMP, stampVal, 'utf8');
     log('[persona] AGENTS.md 已同步');
@@ -1440,19 +1444,24 @@ function logOwn(conv, text) {
 }
 
 async function sendMsg(conv, text) {
-  const __isLocal = conv.kind === 'local';
   for (const part of splitText(text, cfg.maxChunk)) {
-    if (__isLocal) {
-      chatlog.append(conv.id, { dir: 'out', type: 'text', text: part, src: 'app' });
-      logOwn(conv, part);
-      continue;
+    let r = await channels.dispatch(conv, { text: part });
+    // 主人这条私聊发不出去（QQ 断了）：改从本地窗口说出来。
+    // 群消息不许这样换出口——在群里冒出一句只他自己能看到的话，比不发更糟。
+    if (!r.ok && r.offline && conv.kind === 'private' && String(conv.id) === String(cfg.ownerUin)) {
+      const local = channels.get('local');
+      if (local && local.send) {
+        const lr = await local.send(channels.convOn(local, cfg.ownerUin), { text: part });
+        if (lr && lr.ok) {
+          log('[send] QQ 没通，改从本地窗口说', (part || '').slice(0, 40));
+          try { notifyOwner(part); } catch {}
+          logOwn(conv, part);
+          continue;
+        }
+      }
     }
-    const isGroup = conv.kind === 'group';
-    const r = await tryApi(isGroup ? 'send_group_msg' : 'send_private_msg',
-      isGroup ? { group_id: conv.id, message: part } : { user_id: conv.id, message: part });
     // 没发出去就别自欺欺人：不写"我说过"的日志，否则下一轮她会以为自己已经回过
-    if (!r || !r.ok) { log('[send] 没发出去', convKey(conv), (r && r.err) || '', (part || '').slice(0, 40)); continue; }
-    if (!isGroup && String(conv.id) === String(cfg.ownerUin)) chatlog.append(conv.id, { dir: 'out', type: 'text', text: part, src: 'qq' });
+    if (!r.ok) { log('[send] 没发出去', convKey(conv), r.err || '', (part || '').slice(0, 40)); continue; }
     logOwn(conv, part);
   }
 }
@@ -1495,17 +1504,9 @@ function __recordLocal(conv, seg) {
 }
 
 async function sendSeg(conv, seg) {
-  // 本地通道：只记本地，没有远端，按成功算
-  if (conv.kind === 'local') { __recordLocal(conv, seg); return { ok: true, local: true }; }
-  const api = conv.kind === 'group' ? 'send_group_msg' : 'send_private_msg';
-  const params = conv.kind === 'group'
-    ? { group_id: conv.id, message: [seg] }
-    : { user_id: conv.id, message: [seg] };
-  const r = await tryApi(api, params);
-  const ok = !!(r && r.ok);
-  // 发给主人的私聊才记本地：确认发出去了再记，失败就不记
-  if (ok && conv.kind === 'private' && String(conv.id) === String(cfg.ownerUin)) __recordLocal(conv, seg);
-  return ok ? { ok: true, messageId: r.messageId } : { ok: false, err: (r && (r.err || r.error)) || '没发出去' };
+  const r = await channels.dispatch(conv, { seg });
+  if (!r.ok) return { ok: false, err: r.err || '没发出去' };
+  return r.local ? { ok: true, local: true } : { ok: true, messageId: r.messageId };
 }
 
 // 发她指定的本地图片（受控通道）：路径必须落在当前工作区、且会话仍然有效；只发真图，失败就明说，绝不改画一张假的
@@ -1735,8 +1736,11 @@ async function sendSelfie(conv, scene) {
       : '';
     // 这句话里她手里有东西 → 不能再写'举着手机自拍'，否则模型会多画一只举手机的手
     const busyHands = /(拿|抱着|端着|拎|举着|握着|捧着)/.test(sTxt);
+    const fw = self.frameWant();
+    if (fw) log('[selfie] 机位:', fw === 'full' ? '全身（他这轮要的）' : '半身（他这轮要的）');
     const prompt = self.selfiePrompt(sTxt, {
       outfit, place: placeHint, changed: changing, refNote, handsBusy: busyHands,
+      ...(fw ? { full: fw === 'full' } : {}),
       ...(cont ? { keepIn } : {}),
     });
     const opts = { model: cfgD.model };
@@ -1785,6 +1789,8 @@ async function sendSelfie(conv, scene) {
     budget.add('draw', 0.15);
     self.setLast(shot.file, String(sTxt || '').slice(0, 120), placeHint, outfit, look || '');
     await sendSeg(conv, { type: 'image', data: { file: 'file:///' + shot.file.replace(/\\/g, '/') } });
+    if (fw) self.clearFrame();
+    try { const n = loops.close(memKeyOf(conv), { tag: 'photo', evidence: '照片发出去了' }); if (n) log('[loops] 照片的事结掉了', n, '条'); } catch {}
     log('[selfie] ok', path.basename(shot.file), shot.model, look ? '| 画面：' + look.slice(0, 70) : '| 没看成');
   } catch (e) {
     // 空 message 会打出 "fail " 什么都看不出来；把 err 类型也带上，日志里能查
@@ -2573,7 +2579,8 @@ async function onNotice(ev) {
   const self = String(cfg.botUin);
   const sub = String(ev.sub_type || '');
   const ntype = String(ev.notice_type || '');
-  log('[notice]', ntype || '-', sub || '-');            // 先记一行，出问题时能看出 NapCat 到底发了什么
+  // input_status 是"正在输入"这类心跳，一条消息能刷 3-4 行，纯噪声；其余类型照记
+  if (ntype !== 'input_status' && sub !== 'input_status') log('[notice]', ntype || '-', sub || '-');
   // 撤回：对方撤了消息，别当没发生，也别当成新消息回
   const isRecall = ntype === 'friend_recall' || ntype === 'group_recall' || sub === 'recall';
   if (isRecall) {
@@ -2877,7 +2884,15 @@ function queueReply(key, conv, line, rawText, opts = {}) {
   if (!buf) { buf = { conv, lines: [], timer: null }; buffers.set(key, buf); }
   buf.lines.push(line);
   if (!buf.startedAt) buf.startedAt = Date.now();
-  const plan = replyDelay(isGroup, rawText);
+  let plan = replyDelay(isGroup, rawText);
+
+  // 第一次跟这个人说话，不许装忙、也不许不回：
+  // 新人刚装好，发第一句"在吗"就被抽到"15 分钟后回"或者"这次不回"，会以为程序坏了。
+  if (!buf.firstChecked) {
+    buf.firstChecked = true;
+    try { buf.neverSpoke = !chatlog.recent(conv.id, 40).some(r => r && r.dir === 'out'); } catch { buf.neverSpoke = false; }
+  }
+  if (buf.neverSpoke) plan = { ms: 1500 + Math.floor(Math.random() * 2500), skip: false };
 
   // 她这次真没回：不假装看到了
   if (allowSkip && plan.skip && !buf.late) {
@@ -3071,6 +3086,9 @@ async function replyNow(conv, body, extras = {}) {
 
 async function replyNowInner(conv, body, extras = {}) {
   __lastReplyAt = Date.now();
+  // 他这句要的是全身还是半身，先记下来：她自己的画面描述经常只有"坐在床边"，
+  // 光靠描述判机位就会把"你拍张全身照"拍成半身。
+  try { const fw = self.frameFromText(body); if (fw) self.setFrame(fw); } catch {}
   // 她自己说了去睡：睡着期间不再接话（真睡着的人不会秒回）。
   // 但他要是一直敲（20 分钟内 3 条以上），就当把她叫醒——这一点也交给状态，不是按钟点写死。
   const mkSleep = memKeyOf(conv);
@@ -3122,12 +3140,28 @@ async function replyNowInner(conv, body, extras = {}) {
     if (__timeNote && !extras.proactive) body = body + '\n\n' + __timeNote + '（这句话必须先说，括号里的内容不要把文字抄出来）';
   }
   const mk = memKeyOf(conv);
+  // 他那句话里要她做的事（拍照之类）记成"未了之事"；顺手把过点的结掉
+  if (!extras.proactive) { try { loops.noteHisAsk(mk, body); } catch {} }
+  // 他说"忘了那条"就真删（2026-11-01）。core 级事实默认不动，除非他说"一定要"。
+  if (!extras.proactive) {
+    try {
+      const fg = memory.forgetByInstruction(mk, body);
+      if (fg && fg.removed > 0) {
+        body = body + '\n\n（他让你忘掉的事，你已经不记得了，别再提，也不要说"我记着呢"。）';
+        log('[memory] 按他的要求忘掉了', fg.removed, '条：', fg.needle);
+      } else if (fg && fg.blocked > 0) {
+        body = body + '\n\n（他让你忘掉的那条，是你把他当自己的事记下来的，别自己删；先问一句「这条真要忘掉？」。）';
+        log('[memory] 他要忘的那条是 core，先问一句：', fg.needle);
+      }
+    } catch {}
+  }
   let __qvec = null;
   if (!extras.proactive && memory.embOn()) { try { __qvec = await memory.embedText(body, MEM_EMB_CFG()); } catch {} }
   const memInfo = memory.render(mk, extras.proactive ? '' : body, { vec: __qvec, vecSig: MEM_EMB_SIG(), place: (lifeHere() || {}).place });
   const mem = memInfo.text;
   const goalText = (() => { try { return goals.render(520); } catch { return ''; } })();
   if (memInfo.recalled.length) log('[recall]', mk, memInfo.recalled.map(r => r.text).join(' | ').slice(0, 120));
+  if (memInfo.old && memInfo.old.length) log('[回忆]', mk, '翻出旧事：' + memInfo.old.join(' | ').slice(0, 120));
   const history = extras.proactive ? [] : buildHistory(conv, 10);
   // 有了真多轮，就别再把聊天记录拍平成一段文字塞进来（会让她以为在"看文档"）
   const recent = history.length
@@ -3223,6 +3257,7 @@ async function replyNowInner(conv, body, extras = {}) {
         '',
         '【关于对方的记忆】',
         mem || '（还没有任何记忆，这大概是第一次说话。）',
+        (() => { try { return loops.render(mk); } catch { return ''; } })(),
         goalText ? '\n' + goalText : '',
         factsBlock(),
         '',
@@ -3426,6 +3461,8 @@ async function replyNowInner(conv, body, extras = {}) {
   }
   const Ex1 = extractExtras(cleaned);
   const Ex2 = self.extractSelfies(Ex1.cleaned);
+  // 她答应了"明早给你拍""等会弄"这类，记成未了之事，到点没做就自动作废
+  try { loops.noteHerPromise(mk, String(Ex2.cleaned || '').slice(0, 200)); } catch {}
   let ex = Object.assign({}, Ex1, { cleaned: Ex2.cleaned, selfies: Ex2.selfies });
   // 她可以只发媒体不写字（单发一个表情/一张图/一条语音），这时不该硬塞个「……」
   const hasMedia = !!(ex.faces.length || ex.stickerFiles.length || ex.draws.length || (ex.selfies || []).length || (ex.scenes || []).length || ex.voice);
@@ -3609,7 +3646,7 @@ async function qzoneTick() {
     if (!q.enabled) return;
     // 说说必须经 NapCat 的 QQ 会话发出去：没连上时先生成再发必然失败，白烧一次大脑调用
     // （之前 6 天空烧了 191 次）。所以先看连接，再决定要不要写。
-    if (!QQ_ONLINE) {
+    if (!qqOnline()) {
       if (Date.now() - _qzoneOfflineLoggedAt > 6 * 3600 * 1000) {
         _qzoneOfflineLoggedAt = Date.now();
         log('[qzone] QQ 没连上，跳过（要发空间说说先去控制台扫码登录 QQ）');
@@ -3671,7 +3708,7 @@ async function qzoneTick() {
     fs.writeFileSync(QZ_FILE, JSON.stringify({ lastDate: d, lastAt: Date.now(), text: final }, null, 2), 'utf8');
     log('[qzone] 已发布 |', text.replace(/\n/g, ' ').slice(0, 80));
   } catch (e) {
-    log('[qzone] error', QQ_ONLINE ? e.message : 'QQ 断开了，这条没发出去');
+    log('[qzone] error', qqOnline() ? e.message : 'QQ 断开了，这条没发出去');
   }
 }
 
@@ -3702,7 +3739,37 @@ async function browseTick() {
 // ---------- 主动开口：定时器 ----------
 const FORCE_FILE = path.join(RQ, 'proactive.once');
 
-let QQ_ONLINE = false;
+// 通道注册：她住在桥接进程里，QQ 只是出口之一。出口堵了她照样跑（见 channels.mjs）。
+channels.register({
+  id: 'qq', label: 'QQ', kinds: ['private', 'group'],
+  conv: (uin) => ({ kind: 'private', id: String(uin) }),
+  // 投递层：QQ 这条腿就只有这一处（换平台 = 换这一个函数，不动她的对话内核）
+  send: async (conv, out) => {
+    const isGroup = conv.kind === 'group';
+    const api = isGroup ? 'send_group_msg' : 'send_private_msg';
+    const params = isGroup ? { group_id: conv.id } : { user_id: conv.id };
+    params.message = out && out.seg ? [out.seg] : String((out && out.text) || '');
+    const r = await tryApi(api, params);
+    const ok = !!(r && r.ok);
+    if (!ok) return { ok: false, err: (r && (r.err || r.error)) || '没发出去' };
+    // 发给主人的私聊才记本地：确认发出去了再记，失败就不记
+    if (!isGroup && String(conv.id) === String(cfg.ownerUin)) {
+      if (out && out.seg) { try { __recordLocal(conv, out.seg); } catch {} }
+      else chatlog.append(conv.id, { dir: 'out', type: 'text', text: String(out.text), src: 'qq' });
+    }
+    return { ok: true, messageId: r.messageId };
+  },
+});
+channels.register({
+  id: 'local', label: '本地窗口', online: true, kinds: ['local'],
+  conv: (uin) => ({ kind: 'local', id: String(cfg.ownerUin), speaker: String(cfg.ownerUin) }),
+  send: async (conv, out) => {
+    if (out && out.seg) { __recordLocal(conv, out.seg); return { ok: true, local: true }; }
+    chatlog.append(conv.id, { dir: 'out', type: 'text', text: String((out && out.text) || ''), src: 'app' });
+    return { ok: true, local: true };
+  },
+});
+const qqOnline = () => channels.online('qq');
 
 // 睡到点自己醒：醒来主动冒一句（只招呼一次）
 async function wakeTick() {
@@ -3713,7 +3780,7 @@ async function wakeTick() {
       const wake = mind.takeWake(u);
       if (!wake) continue;
       const conv = { kind: 'private', id: u };
-      if (!QQ_ONLINE && String(u) !== String(cfg.ownerUin)) continue;
+      if (!qqOnline() && String(u) !== String(cfg.ownerUin)) continue;
       log('[sleep] 醒了', u, 'energy', Math.round(mind.load(u).energy));
       reply(conv, '', {
         proactive: true,
@@ -3756,7 +3823,7 @@ async function proactiveTick() {
     // QQ 离线时只有主人的 App 通道能收消息：候选人必须收窄到主人。
     // 否则会出现"记忆/时间/计数取的是某个联系人 A，消息却发进主人的 App 会话"，
     // A 的旧事就被带进主人的上下文里（2026-10-29 复查 P1）。
-    if (!QQ_ONLINE) {
+    if (!qqOnline()) {
       const ownerOnly = cands.filter(([u]) => String(u) === String(cfg.ownerUin));
       if (!ownerOnly.length) { log('[proactive] QQ 离线，候选里没有主人，跳过'); return; }
       cands.length = 0;
@@ -3787,9 +3854,7 @@ async function proactiveTick() {
     }
     log('[proactive] try', uin);
 
-    const conv = QQ_ONLINE
-      ? { kind: 'private', id: uin }
-      : { kind: 'local', id: String(cfg.ownerUin), speaker: String(cfg.ownerUin) };
+    const conv = channels.convOn(channels.pick(['qq', 'local']), uin, cfg.ownerUin);
     const mine = pstate[uin];
     const sentN = mine && mine.countDate === d ? (Number(mine.count) || 0) : 0;
     const sinceMine = mine && mine.lastProactiveAt ? Math.round((now - mine.lastProactiveAt) / 60000) : null;
@@ -3808,7 +3873,7 @@ async function proactiveTick() {
       s.count = (s.count || 0) + 1;
       saveP();
       log('[proactive] sent', uin);
-      if (!QQ_ONLINE) notifyOwner(out);   // QQ 没接：用 Windows 通知把这句话递到屏幕上
+      if (!qqOnline()) notifyOwner(out);   // QQ 没接：用 Windows 通知把这句话递到屏幕上
     }
   } catch (e) {
     log('[proactive] error', e.message);
@@ -3834,7 +3899,7 @@ async function connectWs() {
           backoff = 1000;
           fails = 0;
           downAt = 0;
-          QQ_ONLINE = true;
+          channels.setOnline('qq', true);
           // 只记有意义的两行：第一次连上 / 掉线后又连上（带断了多久）。不再每次都打 connecting。
           log(everConnected ? `QQ 重连上了（断了 ${gap} 秒）` : 'ws connected');
           everConnected = true;
@@ -3854,14 +3919,14 @@ async function connectWs() {
             else if (ev.post_type === 'notice') { onNotice(ev).catch(e => log('notice error', e.message)); }
           } catch (err) { log('ws parse error', err.message); }
         });
-        // 掉线就把状态翻回去：之前这里不清 QQ_ONLINE，第一次掉线之后
+        // 掉线就把通道状态翻回去：之前这里不清「在线」，第一次掉线之后
         // 主动消息会一直按「QQ 还在线」往 NapCat 发（发不出去、也不弹 Windows 通知）。
         ws.addEventListener('close', (ev) => {
-          if (QQ_ONLINE) { QQ_ONLINE = false; log('QQ 掉线: 连接关闭', ev && ev.code ? `code ${ev.code}` : ''); }
+          if (qqOnline()) { channels.setOnline('qq', false); log('QQ 掉线: 连接关闭', ev && ev.code ? `code ${ev.code}` : ''); }
           reject(new Error('closed'));
         });
         ws.addEventListener('error', () => {
-          if (QQ_ONLINE) { QQ_ONLINE = false; log('QQ 掉线: ws error'); }
+          if (qqOnline()) { channels.setOnline('qq', false); log('QQ 掉线: ws error'); }
           reject(new Error('ws error'));
         });
       });
@@ -3920,6 +3985,13 @@ function loadCredentialRefs() {
 }
 
 loadCredentialRefs();
+try {
+  const pr = ensurePersonaFile(cfg.personaSrc, {
+    name: SETUP.qq.name, age: SETUP.qq.age, city: SETUP.qq.city, persona: SETUP.qq.persona,
+  });
+  if (pr.created) log('[persona] 首次启动：已用自带模板写了一份人设（控制台「她」页可改）');
+  else if (!pr.ok) log('[persona] 兜底失败 ' + pr.err);
+} catch (e) { log('[persona] 兜底异常 ' + e.message); }
 syncPersona();
 tagStickers();
 cleanInbox();
@@ -4178,6 +4250,14 @@ function startLocalChannel() {
     const u = new URL(req.url, 'http://127.0.0.1');
     const p = u.pathname;
     if (p === '/ping') return __json(res, 200, { ok: true, who: cfg.ownerUin });
+    if (p === '/qq') {
+      const all = channels.list();
+      const qq = all.find(c => c.id === 'qq') || { online: false, since: 0, lastClose: 0, downSec: 0 };
+      return __json(res, 200, {
+        ok: true, online: qq.online, since: qq.since, lastClose: qq.lastClose, downSec: qq.downSec,
+        channels: all,
+      });
+    }
     if (p.startsWith('/media/')) return __serveMedia(res, decodeURIComponent(p.slice(7)));
     if (p === '/msgs') return __json(res, 200, { ok: true, now: Date.now(), msgs: chatlog.since(__localConv().id, Number(u.searchParams.get('since') || 0)) });
     if (p === '/history') return __json(res, 200, { ok: true, msgs: chatlog.recent(__localConv().id, Math.min(500, Number(u.searchParams.get('n') || 100))) });

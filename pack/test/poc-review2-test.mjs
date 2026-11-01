@@ -186,7 +186,9 @@ check('F19 /api/config 保存失败要返回 400', () => {
 check('F20 发送接口要读 HTTP 状态和 retcode', () => {
   assert.ok(/retcode/.test(bridge));
   assert.ok(/if \(!r\.ok\) \{ log\('\[ws api\]', method, 'HTTP', r\.status\)/.test(bridge));
-  assert.ok(/if \(!r \|\| !r\.ok\) \{ log\('\[send\] 没发出去'/.test(bridge));
+  // 投递层抽出去之后，sendMsg 只认通道返回的 ok；"发没发出去"的判断挪进了 QQ 通道的 send()
+  assert.ok(/if \(!r\.ok\) \{ log\('\[send\] 没发出去'/.test(bridge));
+  assert.ok(/const ok = !!\(r && r\.ok\);/.test(bridge));
 });
 
 check('F21 控制台 Node 侧日志函数存在，重启提示不再用裸 log(', () => {

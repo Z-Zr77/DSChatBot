@@ -17,6 +17,40 @@ export function setHalfLife(fact, trivia) {
 function safeUin(uin) { return typeof uin === 'string' && /^\d{5,12}$/.test(uin) ? uin : null; }
 function fjson(uin) { const u = safeUin(uin); if (!u) throw new Error('invalid uin'); return path.join(DIR, u + '.json'); }
 function fmd(uin) { const u = safeUin(uin); if (!u) throw new Error('invalid uin'); return path.join(DIR, u + '.md'); }
+function farch(uin) { const u = safeUin(uin); if (!u) throw new Error('invalid uin'); return path.join(DIR, u + '.archive.json'); }
+
+// ── 长期档案（2026-11-01）─────────────────────────────────────────────
+// 问题：活跃记忆只保留"现在还活着"的那些——合并掉的、放久淡掉的，都直接没了。
+// 于是"一个月前他说过什么"她永远想不起来，只剩 core 那几条硬事实。
+// 做法：把退出活跃表的事挪进 <uin>.archive.json，连向量一起存；检索时用同一个
+// query 向量在档案里再算一次余弦，**不额外调模型、不多花一分钱**。
+const ARCH_MAX = 400;
+export function archiveLoad(uin) {
+  if (!safeUin(uin)) return { items: [] };
+  try {
+    const db = JSON.parse(fs.readFileSync(farch(uin), 'utf8'));
+    return db && Array.isArray(db.items) ? db : { items: [] };
+  } catch { return { items: [] }; }
+}
+function archiveSave(uin, db) {
+  if (!safeUin(uin)) return;
+  try {
+    db.items = db.items.slice(-ARCH_MAX);   // 只留最近 400 条，防止无限长
+    fs.writeFileSync(farch(uin), JSON.stringify(db));
+  } catch {}
+}
+// why：为什么进档案（合并/放久/手工），以后翻旧账要能说清来源
+export function archiveAdd(uin, it, why = '') {
+  if (!safeUin(uin) || !it || !it.text) return false;
+  const db = archiveLoad(uin);
+  if (db.items.some((x) => x.text === it.text)) return false;
+  const keep = { text: it.text, at: it.at || Date.parse(it.last || it.created || '') || Date.now(), kind: it.kind || 'fact', why: String(why || '') };
+  if (Array.isArray(it.vec)) { keep.vec = it.vec; keep.vecSig = it.vecSig || ''; }
+  db.items.push(keep);
+  archiveSave(uin, db);
+  return true;
+}
+export function archiveCount(uin) { return archiveLoad(uin).items.length; }
 const today = () => new Date().toISOString().slice(0, 10);
 
 function empty() { return { items: [] }; }
@@ -179,8 +213,23 @@ export function consolidate(uin) {
     if (it.kind === 'trivia' && !it.hits && ageDays > 30) { it.stale = true; out.stale++; }
   }
   db.items = db.items.filter((x) => !removed.has(x));
+  // 被并掉的那些进档案：正文没了，但"他以前说过类似的话"这条线索还在
+  let archived = 0;
+  for (const it of removed) { if (archiveAdd(uin, it, '合并')) archived++; }
+  // 放久了的琐事也挪进档案：活跃表只留还活着的，档案里随时能翻出来
+  const keep = [];
+  for (const it of db.items) {
+    const ageDays = (now - Number(it.at || Date.parse(it.last || it.created || '') || now)) / 86400000;
+    // "放久了"：普通事实/琐事，一个月以上没人提过、也没命中过 → 挪进档案（不是删）
+    if (it.kind !== 'core' && it.kind !== 'important' && !it.hits && ageDays > 30) {
+      if (archiveAdd(uin, it, '放久了')) { archived++; continue; }
+    }
+    keep.push(it);
+  }
+  db.items = keep;
   save(uin, db);
   out.total = db.items.length;
+  out.archived = archived;
   return out;
 }
 export function backfillAnchors(uin, place) {
@@ -192,6 +241,20 @@ export function backfillAnchors(uin, place) {
   return n;
 }
 
+// 一条记忆算不算"就是这句"：先看包含，再看二字片段覆盖率。
+// 以前"共享 2 个二字片段"就删，导致「下周三有面试」连带删掉「妹妹下周三考试」。
+// 现在要求共享片段覆盖 needle 的一半以上、且 needle 至少 3 个片段才算同一条；
+// 太短的描述（"面试"这种 1 个片段）只做包含匹配，绝不按相似度删（2026-10-29 复查 P1）。
+function textMatches(text, needle, B) {
+  const t = String(text || '');
+  if (t.includes(needle)) return true;
+  if (!B || B.size < 3) return false;
+  const A = grams(t);
+  let inter = 0;
+  for (const x of B) if (A.has(x)) inter++;
+  return inter / B.size >= 0.6;
+}
+
 // 按关键词删（她自己在对话里说"这条不对"时用）
 export function forgetByKeyword(uin, needle, allowCore = false) {
   const db = load(uin);
@@ -201,15 +264,7 @@ export function forgetByKeyword(uin, needle, allowCore = false) {
   const B = grams(k);
   db.items = db.items.filter((it) => {
     if (!allowCore && it.kind === 'core') return true;
-    if (it.text.includes(k)) return false;
-    // 以前"共享 2 个二字片段"就删，导致「下周三有面试」连带删掉「妹妹下周三考试」。
-    // 现在要求共享片段覆盖 needle 的一半以上、且 needle 至少 3 个片段才算同一条；
-    // 太短的描述（"面试"这种 1 个片段）只做包含匹配，绝不按相似度删（2026-10-29 复查 P1）。
-    if (B.size < 3) return true;
-    const A = grams(it.text);
-    let inter = 0;
-    for (const x of B) if (A.has(x)) inter++;
-    return inter / B.size < 0.6;
+    return !textMatches(it.text, k, B);
   });
   save(uin, db);
   return before - db.items.length;
@@ -275,6 +330,65 @@ export function score(it, now = Date.now()) {
   return (it.w || 1) * Math.pow(0.5, days / hl);
 }
 
+// 相对时间过期：事实里写了"明早 / 今晚 / 下周三"这种一次性的时间点，过了就该作废。
+// 典型的坑：她"答应他明早换衣服拍照"，两天后还把这句当没办成的事接着说——
+// 这些事在她这里没有"已完成"的概念，只能靠时间点判死。
+function plusDays(d, n) {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  x.setHours(23, 59, 0, 0);
+  return x.getTime();
+}
+
+// 凌晨（0–4 点）说"明天"，指的是睡醒之后那个白天，也就是今天白天——不是再加一天。
+// 生活里最常见的场景：她半夜两点答应"明早换衣服拍照"，那几个小时后就该算今天。
+function shiftDays(d, n, hour, min = 0) {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  x.setHours(hour, min, 0, 0);
+  return x.getTime();
+}
+const dayShift = d => (new Date(d).getHours() < 4 ? 0 : 1);
+
+const REL_RULES = [
+  [/明早|明天早上|明天上午/, d => shiftDays(d, dayShift(d), 12, 0)],
+  [/明晚|明天晚上/, d => shiftDays(d, dayShift(d), 23, 59)],
+  [/今晚|今夜/, d => shiftDays(d, 0, 23, 59)],
+  [/大后天/, d => shiftDays(d, dayShift(d) + 2, 23, 59)],
+  [/后天/, d => shiftDays(d, dayShift(d) + 1, 23, 59)],
+  [/明天/, d => shiftDays(d, dayShift(d), 23, 59)],
+];
+
+// 返回这条事实的"过期时刻"（毫秒）；没有相对时间就返回 null
+export function relDeadline(text, atMs = Date.now()) {
+  const t = String(text || '');
+  if (!t) return null;
+  const at = Number(atMs);
+  const d = new Date(Number.isFinite(at) && at > 0 ? at : Date.now());
+  for (const [re, f] of REL_RULES) if (re.test(t)) return f(d);
+  const m = t.match(/(?:下|这个|本)?(?:周|星期|礼拜)([一二三四五六日天])/);
+  if (m) {
+    const wd = '日一二三四五六'.indexOf(m[1] === '天' ? '日' : m[1]);
+    if (wd >= 0) {
+      const x = new Date(d);
+      let add = (wd - x.getDay() + 7) % 7;
+      if (add === 0) add = 7;   // "周三"说在周三当天，指的是下周三
+      x.setDate(x.getDate() + add);
+      x.setHours(23, 59, 0, 0);
+      return x.getTime();
+    }
+  }
+  return null;
+}
+
+// 这条事实是不是已经过期了
+export function expired(it, now = Date.now()) {
+  if (!it || it.stale) return true;
+  const base = Number(it.at) || Date.parse(it.created || '') || Number(it.last) || now;
+  const dl = relDeadline(it.text, base);
+  return dl !== null && now > dl;
+}
+
 const STOP = new Set(['他说', '她说', '自己', '一个', '这个', '那个', '什么', '怎么', '因为', '所以',
   '但是', '然后', '就是', '不是', '没有', '可以', '我们', '你们', '他们', '现在', '时候', '觉得',
   '知道', '有点', '一点', '东西', '事情', '而且', '如果', '还是', '已经', '可能', '应该']);
@@ -329,7 +443,7 @@ export function render(uin, incoming = '', opts = {}) {
   const recalled = [];
 
   for (const it of db.items) {
-    if (it.stale) continue;
+    if (expired(it, now)) continue;
     if (hit(it, incoming)) {
       const before = score(it, now);
       touch(it);
@@ -343,7 +457,7 @@ export function render(uin, incoming = '', opts = {}) {
   if (qvec) {
     const cand = [];
     for (const it of db.items) {
-      if (it.stale || !vecOk(it) || it.kind === 'core') continue;
+      if (expired(it, now) || !vecOk(it) || it.kind === 'core') continue;
       if (hit(it, incoming)) continue;
       cand.push({ it, c: cos(qvec, it.vec) });
     }
@@ -355,9 +469,25 @@ export function render(uin, incoming = '', opts = {}) {
     }
   }
 
+  // 档案召回：用同一个 query 向量在长期档案里再算一次余弦（不额外调模型、不花钱）。
+  // 只在"这次话题没在活跃记忆里命中"时才看档案，避免把旧事硬塞进每轮对话。
+  let OLD_HITS = [];
+  if (qvec && !SEM_HITS.length && !recalled.length) {
+    const arch = archiveLoad(uin).items.filter((x) => Array.isArray(x.vec) && (!vsig || x.vecSig === vsig));
+    if (arch.length) {
+      const c2 = arch.map((x) => ({ x, c: cos(qvec, x.vec) })).sort((a, b) => b.c - a.c);
+      const top = c2[0], second = c2[1];
+      // 档案里的东西更旧、更容易张冠李戴，门槛比活跃记忆（0.60/0.035）再严一点
+      if (top && top.c >= 0.62 && (!second || top.c - second.c >= 0.03)) {
+        OLD_HITS.push(top);
+        if (top.c >= 0.72 && second && top.c - second.c >= 0.05) OLD_HITS.push(second);
+      }
+    }
+  }
+
   save(uin, db);
 
-  const live = db.items.filter(i => !i.stale);
+  const live = db.items.filter(i => !expired(i, now));
   const core = live.filter(i => i.kind === 'core');
   const rest = live.filter(i => i.kind !== 'core')
     .map(i => {
@@ -390,7 +520,14 @@ export function render(uin, incoming = '', opts = {}) {
     const lines = SEM_HITS.slice(0, 3).map(x => `- ${x.it.text}`);
     parts.push('【跟这次话题有关的旧事】\n' + lines.join('\n'));
   }
-  return { text: parts.join('\n\n'), recalled, stats: { total: db.items.length, stable: core.length + stable.length, faint: faint.length } };
+  if (OLD_HITS.length) {
+    const lines = OLD_HITS.map(({ x }) => {
+      const d = new Date(x.at);
+      return `- ${d.getMonth() + 1} 月 ${d.getDate()} 日：${x.text}`;
+    });
+    parts.push('【很久以前的事（可能记岔了，说的时候带个"我记得"）】\n' + lines.join('\n'));
+  }
+  return { text: parts.join('\n\n'), recalled, old: OLD_HITS.map(({ x }) => x.text), stats: { total: db.items.length, stable: core.length + stable.length, faint: faint.length, archive: archiveCount(uin) } };
 }
 
 export function list(uin) {
@@ -512,4 +649,28 @@ export function vecStats(uin) {
   const db = load(uin);
   const live = db.items.filter((x) => !x.stale);
   return { total: live.length, withVec: live.filter((x) => Array.isArray(x.vec)).length };
+}
+
+// 他说"忘了那条"→ 真的忘掉（2026-11-01，对应的需求是"说忘就忘"）。
+// 只认明确的指令句，宁可漏掉也不误删：
+//   "忘掉我下周三面试这事" / "别记着我在攒钱买键盘" / "删掉刚才那条"
+// 被当成 core 的（人设级事实）默认不动，除非他明确说"一定要/必须/就是"。
+export function forgetByInstruction(uin, text) {
+  const t = String(text || '').trim();
+  if (!t) return { removed: 0, needle: '', blocked: 0 };
+  const m = t.match(/(?:忘掉|忘了|忘记|别记|不要记|不用记|别存|删掉|删了)\s*[:：]?\s*(.+)$/);
+  if (!m) return { removed: 0, needle: '', blocked: 0 };
+  let needle = m[1].replace(/[。！!？?，,、；;：:\s]+$/g, '').trim();
+  needle = needle.replace(/[吧呢啊呀哈哦嘛]+$/g, '')
+    .replace(/(这|那)(件|条|个|句)?(事|话|记忆|记录)?$/g, '')
+    .trim();
+  if (needle.length < 3) return { removed: 0, needle: '', blocked: 0 };
+  // 记忆里记的是"他……"、他说的是"我……"，人称不统一会让"他明确说忘掉"判定不出来
+  const probe = needle.replace(/^(我|你)/, '').trim() || needle;
+  const force = /(一定|必须|真的|非要|就是|全部|统统|都)/.test(t);
+  const db = load(uin);
+  const B = grams(probe);
+  const blocked = force ? 0 : db.items.filter((i) => i.kind === 'core' && textMatches(i.text, probe, B)).length;
+  const removed = forgetByKeyword(uin, probe, force);
+  return { removed, needle: probe, blocked };
 }

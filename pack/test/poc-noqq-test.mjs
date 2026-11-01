@@ -54,7 +54,16 @@ try {
   check('启动时提示了没填主人 QQ', /还没填主人 QQ/.test(log), log.slice(0, 300));
 
   await fetch(`http://127.0.0.1:${LOCAL_PORT}/say`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: '你是谁啊' }) });
-  await sleep(2500);
+  // 她回话是带延迟的（第一次说话 1.5–4 秒），固定睡 2.5 秒会偶发抢在回复之前，
+  // 改成轮询到她说出那句话为止，最多等 12 秒。
+  for (let i = 0; i < 30; i++) {
+    await sleep(400);
+    try {
+      const t = JSON.parse(await (await fetch(`http://127.0.0.1:${LOCAL_PORT}/history?n=60`)).text() || '{}');
+      if ((t.msgs || []).some((x) => String(x.text || '').includes('我在听'))) break;
+    } catch {}
+  }
+  await sleep(300);
 
   const h = JSON.parse(await (await fetch(`http://127.0.0.1:${LOCAL_PORT}/history?n=60`)).text() || '{}');
   const m = JSON.parse(await (await fetch(`http://127.0.0.1:${LOCAL_PORT}/msgs?since=0`)).text() || '{}');

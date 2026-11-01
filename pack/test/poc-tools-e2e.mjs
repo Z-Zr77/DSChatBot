@@ -33,7 +33,7 @@ const stub = http.createServer((req, res) => {
       sawSystem = (j.messages && j.messages[0] && j.messages[0].content) || '';
       if (sawSystem) seenSystems.push(sawSystem);
       const allUser = (j.messages || []).map((m) => String(m.content || '')).join('\n');
-      reqs.push({ sys: sawSystem, user: allUser });
+      reqs.push({ sys: sawSystem, user: allUser, all: String(sawSystem || '') + String(allUser || '') });
       { const u = (j.messages || []).map((m) => String(m.content || '')).join('\n'); if (u.includes('工具结果')) sawResultReq = true; }
       const userMsg = (j.messages || []).map((m) => String(m.content || '')).join('\n');
       const sawResult = userMsg.includes('工具结果');
@@ -108,12 +108,13 @@ try {
   check('没有把工具 JSON 发给用户', !/\[\[工具|list_dir|"args"/.test(reply), reply);
   check('工具结果被回灌给大脑了', sawResultReq, 'calls=' + calls);
   // 记忆抽取那次也会带上他的话，所以只挑真正生成回复的那次（系统提示词里有回复规矩）
-  const taskReqs = reqs.filter((x) => /notes 目录里都有啥/.test(x.user) && /直接给出要发到 QQ 的回复/.test(x.sys));
+  // 长提示词在 user 里、system 只有人设，所以按「整次请求」找，别只盯 system
+  const taskReqs = reqs.filter((x) => /notes 目录里都有啥/.test(x.all) && /直接给出要发到 QQ 的回复/.test(x.all));
   const taskReq = taskReqs[0] || null;
   check('找到了生成回复的那次请求', !!taskReq, 'reqs=' + reqs.length + ' 回复请求=' + taskReqs.length);
-  check('这次请求的系统提示词里带了工具说明', !!taskReq && /list_dir/.test(taskReq.sys) && /read_file/.test(taskReq.sys),
-    taskReq ? taskReq.sys.slice(-160) : '（没找到任务请求）');
-  check('工具说明里有 run_cmd 且写明要审批（P1-1）', !!taskReq && /run_cmd/.test(taskReq.sys) && /点头|审批/.test(taskReq.sys), taskReq ? taskReq.sys.slice(0, 80) : '');
+  check('这次请求里带了工具说明', !!taskReq && /list_dir/.test(taskReq.all) && /read_file/.test(taskReq.all),
+    taskReq ? taskReq.all.slice(-160) : '（没找到任务请求）');
+  check('工具说明里有 run_cmd 且写明要审批（P1-1）', !!taskReq && /run_cmd/.test(taskReq.all) && /点头|审批/.test(taskReq.all), taskReq ? taskReq.all.slice(0, 80) : '');
 
   const skillsFile = path.join(DATA, 'agent-home', 'memory', 'skills', U + '.json');
   const sk = fs.existsSync(skillsFile) ? JSON.parse(fs.readFileSync(skillsFile, 'utf8')) : { items: [] };

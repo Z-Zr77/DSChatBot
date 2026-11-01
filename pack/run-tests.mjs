@@ -43,6 +43,14 @@ const ALL = [
   ['poc-ui-settings-test', '控制台设置：保存密钥生效 / 无重名函数 / NapCat 引导'],
   ['poc-ui-smoke-test', '界面体检：注入完整 / 按钮都有函数 / id 都真实存在 / 没有裸 undefined'],
   ['poc-brain-retry-test', '大脑空回复重试（不许她的回复凭空消失）'],
+  ['poc-memory-expire-test', '一次性承诺会过期（明早说的那件事，过了就作废）'],
+  ['poc-selfie-frame-test', '全身照别拍成半身（机位按他的原话定）'],
+  ['poc-loops-test', '未了之事：做完或过期，不许一直挂着'],
+  ['poc-memory-archive-test', '长期档案：旧事不删、聊到能翻出来，说忘就忘'],
+  ['poc-doctor-test', '自检：十项最基础的东西，硬伤和可选项要分得清'],
+  ['poc-wizard-test', '第一次见面向导：没配好才出来，配好了不许再弹'],
+  ['poc-channels-test', '通道层：她住在桥接里，QQ 只是出口之一'],
+  ['poc-persona-default-test', '第一次启动自动生成人设（新人第一次打开别是空壳）'],
 ];
 
 // 防止两个 runner 同时跑（会抢端口、抢临时目录）

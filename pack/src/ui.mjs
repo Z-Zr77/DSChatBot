@@ -19,8 +19,9 @@ import * as memory from './memory.mjs';
 import * as lessons from './lessons.mjs';
 import * as skills from './skills.mjs';
 import * as budget from './budget.mjs';
-import { PATHS, loadSetup, saveSetup } from './paths.mjs';
+import { PATHS, loadSetup, saveSetup, APP } from './paths.mjs';
 import { testKey } from './brain.mjs';
+import { ensurePersonaFile } from './persona-default.mjs';
 const RQ = PATHS.data;
 const RQ_AGENT = PATHS.agent;
 
@@ -345,6 +346,8 @@ button{touch-action:manipulation}
 #toast{position:fixed;left:50%;transform:translate(-50%,10px);bottom:calc(84px + env(safe-area-inset-bottom));background:#16261c;color:#8ff0b6;border:1px solid #2b5a3c;padding:10px 18px;border-radius:12px;font-size:13.5px;opacity:0;transition:.2s;pointer-events:none;z-index:40}
 #toast.on{opacity:1;transform:translate(-50%,0)}
 #toast.bad{background:#2b1a1e;color:#ffb3b3;border-color:#5c2b33}
+
+
 pre{background:#0c0e12;border:1px solid #232a35;border-radius:12px;padding:12px;font-size:12px;line-height:1.6;max-height:52vh;overflow:auto;white-space:pre-wrap;word-break:break-word}
 
 .chathead{display:flex;align-items:center;justify-content:space-between;padding:2px 2px 8px;color:#cfd6e6;font-size:14px}
@@ -678,6 +681,7 @@ async function testNotify_legacy(btn){
   btn.disabled = false; btn.textContent = old;
 }
 function toast(m, ok){ const t=$('#toast'); t.textContent=m; t.className='on'+(ok?'':' bad'); clearTimeout(t._h); t._h=setTimeout(()=>t.className='',2200) }
+
 function go(t, el){
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
   $('#t-'+t).classList.add('on');
@@ -779,9 +783,29 @@ async function load(){
   STATE=S;
   $('#dot').className='dot '+((S.bridge&&S.bridge.alive)?'ok':'bad');
   $('#hd').textContent=(S.login?(S.login.nickname||S.login.user_id):'未登录');
+  // 通道状态 ≠ 她的状态。她住在桥接进程里，QQ 只是三个入口之一：
+  // 断了以后她照旧过日子、照旧主动开口，只是消息改走本地窗口 + Windows 通知。
+  // 所以标题永远是她的名字，通道单独一行说清楚"这个入口通不通、断了多久"。
+  const chTxt = (() => {
+    const q = S.qqLive;
+    if (!S.login && !q) return '未登录';
+    const nm = S.login ? (S.login.nickname + '（' + S.login.user_id + '）') : '未登录';
+    if (!q) return nm;
+    const fmt = (sec) => sec >= 3600 ? (sec / 3600).toFixed(1) + ' 小时' : Math.max(1, Math.round(sec / 60)) + ' 分钟';
+    // 通道可能不止一个：逐个说，只说没连上的那个，别把"出口堵了"说成"她出事了"
+    if (Array.isArray(q.channels) && q.channels.length) {
+      const down = q.channels.filter(c => !c.online);
+      if (!down.length) return nm;
+      return nm + ' · ' + down.map(c => c.label + ' 这个入口没连上（' + fmt(Number(c.downSec || 0)) + '）').join('、')
+        + ' · 她还在跑，消息走本地窗口';
+    }
+    if (q.online) return nm;
+    return 'QQ 这个入口没连上（' + fmt(Number(q.downSec || 0)) + '）· 她还在跑，消息改走本地窗口';
+  })();
   $('#bAlive').textContent=(S.bridge&&S.bridge.alive)?('运行中 pid '+S.bridge.pid):'没在跑';
   if (!S.bridge) { $('#bAlive').textContent='读不到（可能要在电脑上看一眼）'; }
-  $('#bLogin').textContent=S.login?(S.login.nickname+'（'+S.login.user_id+'）'):'未登录';
+  $('#bLogin').textContent=chTxt;
+  $('#bLogin').style.color=(S.qqLive && S.qqLive.online===false)?'#c08a2e':'';
   const b=S.budget||{};
   { const v=Number(b.today||0), m=Number(b.spent||0); $('#bCost').textContent='¥'+v.toFixed(2)+' / 本月 ¥'+m.toFixed(2) }
   paintQr(S);
@@ -1163,9 +1187,74 @@ const server = http.createServer(async (req, res) => {
         return send(res, 500, { ok: false, err: String(e && e.message) });
       }
     }
+
+    // 自检：换电脑、重装、第一次用之前，先看这十项有没有坏（2026-11-01）
+    if (p === '/api/doctor') {
+      const items = [];
+      const add = (id, level, label, detail, fix) => items.push({ id, level, label, detail: String(detail || ''), fix: String(fix || '') });
+      try {
+        const su = loadSetup() || {}; const a = su.api || {};
+        const hasKey = !!String(a.key || '').trim();
+        add('api', hasKey ? 'ok' : 'fail', '大模型接口',
+          hasKey ? (a.model || '（没写模型）') + ' @ ' + (a.baseUrl || '默认地址') + ' · key 尾号 ' + String(a.key).slice(-4) : '还没有 API Key',
+          hasKey ? '' : '去「设置 → 大脑（API）」填一个 key，再点「测试连接」');
+      } catch { add('api', 'fail', '大模型接口', '读不到 setup.json', '去「设置」把 API 重填一次'); }
+      try {
+        const probe = path.join(DIR, '.doctor-probe');
+        fs.writeFileSync(probe, 'ok'); fs.unlinkSync(probe);
+        add('data', 'ok', '数据目录可写', DIR, '');
+      } catch (e) { add('data', 'fail', '数据目录不可写', String((e && e.message) || e), '磁盘满或没有写权限：' + DIR); }
+      try {
+        const t = readText(PERSONA);
+        const n = t.trim().length;
+        add('persona', n > 100 ? 'ok' : 'fail', '她的人设', n > 100 ? n + ' 字' : '没有人设或太短（' + n + ' 字）',
+          n > 100 ? '' : '去「她」页写两句，或点「用图片自动生成描述」');
+      } catch { add('persona', 'fail', '她的人设', '读不到 persona.md', '去「她」页保存一次'); }
+      const a2 = alive();
+      add('bridge', a2.alive ? 'ok' : 'fail', '桥接进程', a2.alive ? 'pid ' + a2.pid : '没在跑', a2.alive ? '' : '点「重启桥接」');
+      try {
+        const r = await fetch(LOCAL_URL() + '/ping', { signal: AbortSignal.timeout(1200) });
+        add('local', r.ok ? 'ok' : 'warn', '本地通道 3098', r.ok ? '在听' : 'HTTP ' + r.status, r.ok ? '' : '重启桥接');
+      } catch { add('local', 'fail', '本地通道 3098', '连不上', '重启桥接；一直不行就看日志'); }
+      try {
+        const r = await fetch(LOCAL_URL() + '/qq', { signal: AbortSignal.timeout(1200) });
+        const j = await r.json();
+        const ch = (j.channels || []).find((x) => x.id === 'qq') || j;
+        add('qq', ch.online ? 'ok' : 'warn', 'QQ 通道（可选）', ch.online ? '已连上' : '没连上',
+          ch.online ? '' : '不影响她用：QQ 没连时消息走本地窗口。要连就去设置里扫码');
+      } catch { add('qq', 'warn', 'QQ 通道（可选）', '查不到状态', '不影响使用'); }
+      try {
+        const files = fs.existsSync(MEMDIR) ? fs.readdirSync(MEMDIR) : [];
+        add('memory', 'ok', '记忆库',
+          files.filter((f) => f.endsWith('.json') && !f.includes('.archive.')).length + ' 个人 · '
+          + files.filter((f) => f.includes('.archive.')).length + ' 份长期档案', '');
+      } catch { add('memory', 'warn', '记忆库', '读不到目录', '不影响使用'); }
+      try {
+        const su = loadSetup() || {}; const w = su.work || {};
+        const on = w.toolsEnabled === true;
+        add('work', on ? 'ok' : 'warn', '动手能力', on ? '已允许（' + (w.execMode || 'ask') + '）' : '关着，她现在只能聊天',
+          on ? '' : '要用就去「设置 → 允许她动电脑」打开，再「进入工作模式」选文件夹');
+      } catch { add('work', 'warn', '动手能力', '读不到设置', '去「设置」看一下'); }
+      try {
+        const st2 = fs.statfsSync ? fs.statfsSync(DIR) : null;
+        const freeMB = st2 ? Math.round((st2.bfree * st2.bsize) / 1048576) : null;
+        add('disk', (freeMB === null || freeMB > 500) ? 'ok' : 'warn', '磁盘空间', freeMB === null ? '查不到' : '剩 ' + freeMB + ' MB',
+          (freeMB !== null && freeMB <= 500) ? '空间不多：她的画和备份会占地方' : '');
+      } catch { add('disk', 'ok', '磁盘空间', '查不到（不影响）', ''); }
+      try { add('version', 'ok', '版本', (readJSON(path.join(APP, 'package.json'), {}) || {}).version || '未知', ''); }
+      catch { add('version', 'ok', '版本', '未知', ''); }
+      return send(res, 200, { ok: !items.some((i) => i.level === 'fail'), at: Date.now(), items });
+    }
+
     if (p === '/api/state') {
       const a = alive();
       const QQE = (() => { try { const s2 = settings.load(); return !(s2.qq && s2.qq.enabled === false); } catch { return true; } })();
+      // QQ 到底连没连上，只有桥接知道（NapCat 的 get_login_info 掉线时还会回缓存，不能信）
+      let qqLive = null;
+      try {
+        const r = await fetch(LOCAL_URL() + '/qq', { signal: AbortSignal.timeout(700) });
+        if (r.ok) qqLive = await r.json();
+      } catch {}
       const login = await oneBot();
       const people = fs.existsSync(MEMDIR) ? fs.readdirSync(MEMDIR).filter((f) => f.endsWith('.json')).map((f) => f.replace('.json', '')) : [];
       const minds = fs.existsSync(MINDDIR) ? fs.readdirSync(MINDDIR).filter((f) => f.endsWith('.json')).map((f) => ({ uin: f.replace('.json', ''), ...readJSON(path.join(MINDDIR, f), {}) })) : [];
@@ -1193,7 +1282,7 @@ const server = http.createServer(async (req, res) => {
         qqEnabled: QQE,
         napcatDir: ncDir,
         napcatReady: ncReady,
-        bridge: a, login, people, minds,
+        bridge: a, login, people, minds, qqLive,
         names: readJSON(NAMES, {}),
         ownerUin: ownerUin(),
         delCode: delCodeState().active,
@@ -1298,7 +1387,13 @@ const server = http.createServer(async (req, res) => {
       }
     }
     if (p === '/api/persona') {
-      if (req.method === 'GET') return send(res, 200, { text: readText(PERSONA) });
+      if (req.method === 'GET') {
+        try {
+          const su = loadSetup() || {};
+          ensurePersonaFile(PERSONA, { name: (su.qq || {}).name, age: (su.qq || {}).age, city: (su.qq || {}).city, persona: (su.qq || {}).persona });
+        } catch {}
+        return send(res, 200, { text: readText(PERSONA) });
+      }
       const b = await body(req);
       fs.writeFileSync(PERSONA, String(b.text || ''), 'utf8');
       return send(res, 200, { ok: true });
@@ -1747,14 +1842,21 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, {
           ownerUin: String(s.qq?.ownerUin || s.qq?.master || ''),
           uin: String(s.qq?.uin || ''),
+          name: String(s.qq?.name || ''),
           dataDir: PATHS.data,
           locFile: PATHS.locFile || '',
+          keySet: !!(s.api && s.api.key),
         });
       }
       const b = await body(req);
-      const owner = String(b.ownerUin || '').replace(/\D/g, '').slice(0, 12);
-      saveSetup({ qq: { ownerUin: owner, master: owner } });
-      return send(res, 200, { ok: true, ownerUin: owner });
+      const patch = { qq: {} };
+      if (b.ownerUin !== undefined) {
+        const owner = String(b.ownerUin || '').replace(/\D/g, '').slice(0, 12);
+        patch.qq.ownerUin = owner; patch.qq.master = owner;
+      }
+      if (b.name !== undefined) patch.qq.name = String(b.name || '').trim().slice(0, 24);
+      saveSetup(patch);
+      return send(res, 200, { ok: true, ownerUin: patch.qq.ownerUin || '', name: patch.qq.name || '' });
     }
 
     if (p === '/api/open-data' && req.method === 'POST') {
@@ -2041,6 +2143,17 @@ const HTML = String.raw`<!doctype html>
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;background:var(--bg) radial-gradient(1100px 520px at 18% -12%,#151d2c 0%,rgba(10,12,16,0) 60%) no-repeat fixed;color:var(--fg);font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,-apple-system,sans-serif;display:flex;height:100vh;overflow:hidden;-webkit-font-smoothing:antialiased}
+  .wz-mask{ position:fixed; inset:0; background:rgba(6,10,18,.72); display:flex; align-items:center; justify-content:center; z-index:99; }
+  .wz-box{ width:min(560px,92vw); background:#111823; border:1px solid #22303f; border-radius:14px; padding:20px 22px 18px; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+  .wz-t{ font-size:19px; font-weight:700; color:#e8eef6; }
+  .wz-d{ font-size:12.5px; color:#8b9bad; margin:6px 0 14px; }
+  .wz-l{ display:block; font-size:12.5px; color:#9fb0c2; margin-bottom:10px; }
+  .wz-l input{ display:block; width:100%; margin-top:5px; background:#0d1420; border:1px solid #22303f; border-radius:9px; color:#e8eef6; padding:8px 10px; font-family:inherit; font-size:13px; }
+  .wz-btns{ display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; }
+  .wz-log{ margin-top:12px; max-height:190px; overflow:auto; font-size:12.5px; line-height:1.7; }
+  .wz-line{ color:#9fb0c2; }
+  .wz-line.bad{ color:#e2776b; }
+  .wz-line.her{ color:#8fd0a0; }
 nav{width:212px;flex:0 0 212px;height:100vh;padding:14px 12px 18px;border-right:1px solid var(--line);background:linear-gradient(180deg,#0e1218,#0a0c10 65%);display:flex;flex-direction:column;gap:3px;overflow-y:auto;scrollbar-width:thin}
 .brand{display:flex;align-items:center;gap:10px;padding:4px 8px 14px;margin-bottom:8px;border-bottom:1px solid var(--line)}
 .brand .logo{width:34px;height:34px;flex:0 0 34px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:19px;line-height:1;background:linear-gradient(160deg,#1e2a40,#111620);border:1px solid var(--line2);box-shadow:0 6px 14px -10px #000}
@@ -2575,6 +2688,10 @@ const PAGE_LOAD = {
   config: () => { loadCfg(); loadLog(); }
 };
 const ALIAS = { status: 'overview', persona: 'her', stickers: 'her', interests: 'her', budget: 'money', groups: 'config', log: 'config' };
+function goPage(t) {
+  const b = document.querySelector('nav button[data-t="' + t + '"]');
+  if (b && b.onclick) b.onclick();
+}
 function setPageTitle(t) {
   const p = PG[t] || [t, ''];
   const h = document.getElementById('pgTitle'), s = document.getElementById('pgSub');
@@ -2605,6 +2722,8 @@ setTimeout(() => {
   try {
     setPageTitle('overview');
     let h = (location.hash || '').replace('#', '');
+    // 支持「打开 …/#doctor 就直接跑一遍自检」——出问题时把这条链接发给人就行
+    if (h === 'doctor' || h === 'check') { try { runDoctor(); } catch (e) {} return; }
     if (h && ALIAS[h]) h = ALIAS[h];
     if (!h || !PG[h]) return;
     const btn = document.querySelector('nav button[data-t="' + h + '"]');
@@ -2805,6 +2924,32 @@ async function loadBackup(){
     if (box) box.textContent = '读不到备份状态：' + String(e && e.message || e);
   }
 }
+async function runDoctor(){
+  // 概览是异步渲染的：从 #doctor 直接进来时盒子还没建好，等它一下
+  let box = $('#doctorBox');
+  for (let i = 0; i < 24 && !box; i++) { await new Promise(function(r){ setTimeout(r, 250); }); box = $('#doctorBox'); }
+  if (!box) return;
+  box.innerHTML = '<div class="dim">正在检查…</div>';
+  try {
+    const r = await api('/api/doctor');
+    const items = (r && r.items) || [];
+    box.innerHTML = items.map(function(it){
+      const cls = it.level === 'ok' ? 'ok' : (it.level === 'warn' ? 'warn' : 'bad');
+      const mark = it.level === 'ok' ? '✓' : (it.level === 'warn' ? '!' : '✗');
+      return '<div class="prow"><span class="' + cls + '">' + mark + '</span><b>' + esc(it.label) + '</b>'
+        + '<span class="dim">' + esc(it.detail || '') + '</span></div>'
+        + (it.fix ? '<div class="dim" style="font-size:12px;margin:-4px 0 6px 22px">→ ' + esc(it.fix) + '</div>' : '');
+    }).join('') + (function(){
+      const warns = items.filter(function(x){ return x.level === 'warn'; }).length;
+      if (!r || !r.ok) return '<div class="bad" style="margin-top:8px">有硬伤，先按上面的 → 修掉，不然她跑不起来。</div>';
+      if (warns) return '<div class="dim" style="margin-top:8px">没有硬伤。上面带 ! 的 ' + warns + ' 项不是报错：QQ 是可选的，动手能力默认关着。</div>';
+      return '<div class="dim" style="margin-top:8px">全部正常。</div>';
+    })();
+  } catch (e) {
+    box.innerHTML = '<div class="bad">检查失败：' + esc(String((e && e.message) || e)) + '</div>';
+  }
+}
+
 async function runBackup(full){
   toast(full ? '开始完整备份（含她的画和聊天图）…' : '开始备份…');
   const r = await api('/api/backup/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: full ? 'full' : 'normal' }) });
@@ -2843,14 +2988,17 @@ async function loadState(){
     + '<button class="ghost btn" style="margin-left:auto" onclick="restart()">重启桥接</button></div>'
     + '<div class="dim" style="margin-top:8px">记忆 ' + S.counts.memories + ' 人 · 表情包 ' + S.counts.stickers + ' 张 · 音色 ' + (c.voiceName||c.voice)
     + (S.budget ? ' · 本月 ￥' + S.budget.spent.toFixed(2) + ' / ' + S.budget.cap : '') + '</div></div>'
+    + '<div class="card"><div class="row" style="justify-content:space-between"><b>自检</b>'
+    + '<button class="ghost btn" onclick="runDoctor()">检查一下</button></div>'
+    + '<div class="dim" style="margin-top:6px">第一次用、换电脑、重装之后点一下：最基础的那几项有没有坏。只读检查，不改任何东西。</div>'
+    + '<div id="doctorBox" style="margin-top:8px"></div></div>'
     + '<div class="card" id="workCard"><div class="row" style="justify-content:space-between"><b>工作模式</b>'
     + '<span id="workBadge" class="pill">未开启</span></div>'
     + '<div class="dim" id="workInfo" style="margin-top:6px">日常聊天她只能看、不能改。要她动手改文件，点下面按钮，先选一个工作目录。</div>'
     + '<div id="workEdits" style="margin-top:10px"></div>'
-    + '<div class="row" style="margin-top:10px;gap:8px"><button class="ghost btn" id="workToolsBtn" onclick="toggleWorkTools()">允许她动电脑</button><span class="dim" id="workToolsState">关着</span></div>'
-    + '<div class="dim" style="margin-top:4px;font-size:12px">关着的时候她只能聊天（默认）。打开后她才能在你选的文件夹里读/改文件、跑命令，动手前会问你。</div>'
-    + '<div class="dim" id="workToolsHint" style="margin-top:2px;font-size:12px"></div>'
+    + '<div class="dim" id="workToolsHint" style="margin-top:6px;font-size:12px"></div>'
     + '<div class="row" style="margin-top:10px;gap:8px"><button class="btn" onclick="openWorkDialog()">进入工作模式</button>'
+    + '<button class="ghost btn" onclick="goPage(this.dataset.p)" data-p="config">「允许她动电脑」开关在设置里</button>'
     + '<button class="ghost btn" id="workStop" onclick="stopWork()" style="display:none">停止工作会话</button></div></div>'
     + '<div class="card"><div class="row" style="justify-content:space-between"><b>备份</b>'
     + '<button class="btn" onclick="runBackup()">立刻备份</button>'
@@ -3120,7 +3268,50 @@ async function setWorkTools(on) {
 }
 
 // ---- 工作模式（首期只有文件能力：读 / 改 / 预览 / 恢复 / 停止） ----
+// 进了工作模式却不知道说什么——第一次用的人卡在这里。
+// 给三句"现在就能用"的例子，点一下直接发给她（走和聊天窗同一条路）。
+function workExamplesHtml(idle){
+  const rows = [
+    ['看看这个目录里都有什么，挑三个文件说说它们是干嘛的', '只读，不会改东西'],
+    ['把 笔记.txt 里的错别字改掉，改完告诉我改了哪几处', '改文件：动手前会问你'],
+    ['查一下 Node 22 有什么值得注意的新特性，写进 调研.md', '要联网：在聊天窗顶部状态条里开了才行']
+  ];
+  if (idle) {
+    return '<div style="margin-top:8px;opacity:.62">'
+      + rows.map(function(r){
+          return '<div class="row" style="gap:8px;align-items:center;margin:6px 0">'
+            + '<button class="ghost btn" data-try="' + esc(r[0]) + '">' + esc(r[0]) + '</button>'
+            + '<span class="dim" style="font-size:12px">' + esc(r[1]) + '</span></div>';
+        }).join('') + '</div>';
+  }
+  return '<div style="margin-top:10px"><div class="dim" style="font-size:12px;margin-bottom:6px">不知道说什么？点一句试试：</div>'
+    + rows.map(function(r){
+        return '<div class="row" style="gap:8px;align-items:center;margin:6px 0">'
+          + '<button class="ghost btn" data-try="' + esc(r[0]) + '">' + esc(r[0]) + '</button>'
+          + '<span class="dim" style="font-size:12px">' + esc(r[1]) + '</span></div>';
+      }).join('') + '</div>';
+}
+
+async function tryWork(text){
+  if (!text) return;
+  if (!WORK || !WORK.active) {
+    toast('先点「进入工作模式」选一个文件夹，她才能动手');
+    try { openWorkDialog(); } catch (e) {}
+    return;
+  }
+  try {
+    const r = await api('/api/chat/send', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text: text }) });
+    if (r && r.ok) toast('发出去了，去聊天窗看她怎么做', 'ok');
+    else toast('发不出去：' + ((r && r.err) || '未知原因'), 'bad');
+  } catch (e) { toast('发不出去：' + String((e && e.message) || e), 'bad'); }
+}
+
 let WORK = { active: false };
+
+document.addEventListener('click', function (ev) {
+  const b = ev.target && ev.target.closest ? ev.target.closest('button[data-try]') : null;
+  if (b) { tryWork(b.getAttribute('data-try')); }
+}, true);
 async function loadWork(){
   try {
     const r = await api('/api/work');
@@ -3135,13 +3326,16 @@ async function loadWork(){
       badge.style.borderColor = '#2f6b3c';
       info.innerHTML = '工作目录：<code>' + esc(WORK.root) + '</code><br>能力：' + (WORK.caps || []).map(esc).join('、')
         + ' · 剩余 ' + mins + ' 分钟（只有你发消息/点按钮才续期）'
-        + (WORK.inPlace ? '<br><b style="color:#e2b477">就地模式：改的是原文件</b>' : '');
+        + (WORK.inPlace ? '<br><b style="color:#e2b477">就地模式：改的是原文件</b>' : '')
+        + workExamplesHtml();
       stop.style.display = '';
     } else {
       badge.textContent = '未开启';
       badge.style.color = '';
       badge.style.borderColor = '';
-      info.innerHTML = '日常聊天她只能看、不能改。要她动手改文件，点下面按钮，先选一个工作目录。';
+      info.innerHTML = '日常聊天她只能看、不能改。要她动手改文件，点下面按钮，先选一个工作目录。'
+        + '<div class="dim" style="margin-top:10px;font-size:12px">开起来之后就能说这类话（现在点会先带你去开）：</div>'
+        + workExamplesHtml(true);
       stop.style.display = 'none';
     }
     renderWorkEdits(WORK.active ? (r && r.edits) || [] : []);
@@ -3856,7 +4050,106 @@ async function resetBudget(){
   loadBudget();
 }
 
+// ===== 第一次见面（向导）=====
+// 只在「没有 API Key」或「还没填你是谁」时出现一次，做完就不再打扰。
+function wzEl(){ return $('#wz'); }
+function wzSleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+
+async function maybeWizard(){
+  try {
+    const s = await api('/api/setup');
+    const b = await api('/api/brain').catch(function(){ return null; });
+    const keySet = !!(s && s.keySet) || !!(b && b.keySet);
+    if (keySet && s && s.ownerUin) return;
+    const name0 = (s && s.name) ? s.name : '大肥鱼';
+    const uin0 = (s && s.ownerUin) ? s.ownerUin : '';
+    const box = document.createElement('div');
+    box.id = 'wz'; box.className = 'wz-mask';
+    box.innerHTML = ''
+      + '<div class="wz-box">'
+      + '  <div class="wz-t">第一次见面</div>'
+      + '  <div class="wz-d">三步就能让她开口。做完了这张卡不会再出现。</div>'
+      + '  <label class="wz-l">她叫什么<input id="wzName" value="' + esc(name0) + '" maxlength="24"></label>'
+      + '  <label class="wz-l">你的 QQ（可以留空，留空就只在电脑上说）<input id="wzUin" value="' + esc(uin0) + '" placeholder="例如 123456789" inputmode="numeric"></label>'
+      + '  <label class="wz-l">大脑地址<input id="wzBase" value="https://api.deepseek.com/v1"></label>'
+      + '  <label class="wz-l">模型<input id="wzModel" value="deepseek-flash"></label>'
+      + '  <label class="wz-l">API Key（没有它她不会说话）<input id="wzKey" type="password" placeholder="sk-..."></label>'
+      + '  <div class="wz-btns"><button class="pri btn" id="wzGo">保存，说第一句</button>'
+      + '  <button class="ghost btn" id="wzSkip">先不弄，我自己去设置里填</button></div>'
+      + '  <div id="wzLog" class="wz-log"></div>'
+      + '</div>';
+    document.body.appendChild(box);
+    $('#wzSkip').onclick = function(){ box.remove(); };
+    $('#wzGo').onclick = wzSave;
+    setTimeout(function(){ try { $('#wzName').focus(); } catch (e) {} }, 100);
+  } catch (e) {}
+}
+
+function wzLine(text, cls){
+  const log = $('#wzLog');
+  if (!log) return;
+  const d = document.createElement('div');
+  d.className = 'wz-line ' + (cls || '');
+  d.textContent = text;
+  log.appendChild(d);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function wzSave(){
+  const name = (($('#wzName') || {}).value || '').trim() || '大肥鱼';
+  const uin = (($('#wzUin') || {}).value || '').replace(/\D/g, '').slice(0, 12);
+  const key = (($('#wzKey') || {}).value || '').trim();
+  const baseUrl = (($('#wzBase') || {}).value || '').trim() || 'https://api.deepseek.com/v1';
+  const model = (($('#wzModel') || {}).value || '').trim() || 'deepseek-flash';
+  if (!key) { wzLine('先填 API Key——没有它她不会说话。', 'bad'); return; }
+
+  const go = $('#wzGo');
+  if (go) { go.disabled = true; go.textContent = '正在保存…'; }
+  wzLine('保存中…');
+  try {
+    await api('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, ownerUin: uin }) });
+    const rb = await api('/api/brain', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baseUrl: baseUrl, model: model, key: key }) });
+    if (rb && rb.ok === false) throw new Error(rb.err || '保存失败');
+    wzLine('好了，正在让她重新起来…');
+    await api('/api/restart', { method: 'POST' }).catch(function(){});
+    let alive = false;
+    for (let i = 0; i < 40; i++) {
+      await wzSleep(1000);
+      const st = await api('/api/state').catch(function(){ return null; });
+      if (st && st.bridge && st.bridge.ok) { alive = true; break; }
+    }
+    if (!alive) { wzLine('桥接没起来：去「设置」看看，或者点上面的「重启桥接」。', 'bad'); if (go) { go.disabled = false; go.textContent = '再试一次'; } return; }
+    wzLine('她起来了。跟她说第一句——');
+    await api('/api/chat/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: '你好呀，你好吗' }) });
+    const seen = {};
+    let got = false;
+    for (let i = 0; i < 45 && !got; i++) {
+      await wzSleep(1000);
+      const m = await api('/api/chat/msgs?since=0').catch(function(){ return null; });
+      const list = (m && (m.msgs || m.list)) || [];
+      for (const it of list) {
+        const k = String(it.at) + '|' + String(it.dir);
+        if (seen[k] || !it.text) continue;
+        seen[k] = 1;
+        wzLine((it.dir === 'out' ? name + '：' : '你：') + it.text, it.dir === 'out' ? 'her' : '');
+        if (it.dir === 'out') got = true;
+      }
+    }
+    if (!got) {
+      wzLine('她没说话：多半是 Key 不对或者地址错了。去「设置 → 大脑」点「测试连接」看看。', 'bad');
+      if (go) { go.disabled = false; go.textContent = '再试一次'; go.onclick = wzSave; }
+      return;
+    }
+    wzLine('能回话就成了。接着改别的吧。');
+    if (go) { go.disabled = false; go.textContent = '进入控制台'; go.onclick = function(){ const e = wzEl(); if (e) e.remove(); location.reload(); }; }
+  } catch (e) {
+    wzLine('出错了：' + String((e && e.message) || e), 'bad');
+    if (go) { go.disabled = false; go.textContent = '再试一次'; go.onclick = wzSave; }
+  }
+}
+
 loadState(); loadPersona(); loadSelf(); loadCfg(); api('/api/delcode').then(renderDelCode).catch(() => {});
+setTimeout(() => { maybeWizard(); }, 600);
 setInterval(() => { if ($('#overview') && $('#overview').classList.contains('on')) { loadState(); loadRecent(); } }, 15000);
 
 </script>  <div id="toast"></div>
