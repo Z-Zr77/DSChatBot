@@ -64,6 +64,18 @@ try {
   const g = await (await fetch(`http://127.0.0.1:${PORT}/api/brain`)).json();
   check('GET 回读是 keySet', g.keySet === true && /sk-reg/.test(g.keyMask), JSON.stringify(g));
 
+  for (const relationship of ['女友', '老婆', '朋友', '写作搭档']) {
+    const response = await fetch(`http://127.0.0.1:${PORT}/api/setup`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ relationship }),
+    });
+    const result = await response.json();
+    const persona = fs.readFileSync(path.join(DATA, 'persona.md'), 'utf8');
+    const setup = await (await fetch(`http://127.0.0.1:${PORT}/api/setup`)).json();
+    check('身份保存接口写入并回读：' + relationship,
+      result.ok && persona.includes('关系/身份：' + relationship) && setup.relationship === relationship);
+  }
+
   const st = await (await fetch(`http://127.0.0.1:${PORT}/api/state`)).json();
   check('state 里有 napcatReady', typeof st.napcatReady === 'boolean', JSON.stringify(st.napcatReady));
 } catch (e) {
