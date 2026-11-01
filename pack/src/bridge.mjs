@@ -3193,6 +3193,7 @@ function withConvLock(key, fn) {
 
 // 对外仍然是 reply(...)，所有调用点（flush / 主动消息 / 本地通道）都自动串行
 async function reply(conv, body, extras = {}) {
+  if (extras.proactive && !extras.manualProactive && settings.load().proactive?.enabled === false) return;
   const key = convKey(conv);
   const lkey = lockKeyOf(conv);
   if (extras.proactive && (busy.has(key) || __chains.has(lkey))) {
@@ -4848,7 +4849,7 @@ function startLocalChannel() {
     if (p === '/proactive') {
       if (req.method !== 'POST') return __json(res, 405, { ok: false, err: 'method' });
       __json(res, 200, { ok: true });
-      reply(__localConv(), '', { proactive: true }).catch((e) => log('[local] proactive fail', e.message));
+      reply(__localConv(), '', { proactive: true, manualProactive: true }).catch((e) => log('[local] proactive fail', e.message));
       return;
     }
     return __json(res, 404, { ok: false });

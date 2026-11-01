@@ -2343,6 +2343,15 @@ th{background:#30232b;color:#dcc4d0;font-size:12px;padding:12px;text-align:left}
 .chatempty,.chathint,.msg .meta{color:var(--dim)}.msg .meta{font-size:12px}.avatar{background:#4b303d}.bubble{padding:12px 16px;border-radius:18px;line-height:1.75;box-shadow:0 3px 10px #0002}.msg.out .bubble{background:#362831;color:var(--fg)}.msg.in .bubble{background:#a54c67;color:#fff5f8}.chatbar{border-color:var(--line)}.chatbar textarea{background:#272024;border-color:var(--line2);color:var(--fg)}.chatbar .pic{background:#392a33;color:#ecd5e0;border-color:var(--line2)}.chatbar .pri{background:#a54c67}.code-big{background:#30242a;border-color:var(--line2)}
 @media(max-width:820px){nav{padding:10px 12px}.brand{padding-bottom:0;margin-bottom:0}.topbar{padding:16px 12px}.topbar h1{font-size:21px}.wrap{padding:12px 0 0}.card{padding:18px}textarea,input,select{font-size:16px}.gr .hint{font-size:13px}.wz-box{max-height:90dvh;overflow:auto}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;scroll-behavior:auto!important}}
+/* 控制台阅读节奏：保留现有控件与行为 */
+.topbar{padding-top:22px;padding-bottom:18px;align-items:center}
+.topbar h1{font-size:24px;line-height:1.35}.topbar .sub{font-size:13px;line-height:1.7;max-width:68ch}
+.wrap{padding-top:20px}.card{padding:22px;margin-bottom:18px}.card h2{margin:0 0 14px;font-size:17px;line-height:1.5}
+.paneh{font-size:13px;letter-spacing:.4px;margin-top:28px;margin-bottom:12px}
+.recent{line-height:1.85;word-break:normal;overflow-wrap:anywhere}textarea{line-height:1.8}
+.empty,.qrempty{line-height:1.9;max-width:100%;overflow-wrap:anywhere}
+button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--acc2);outline-offset:3px}
+@media(max-width:900px){.wrap{padding:16px 18px 0}.topbar{padding:18px}.card{padding:18px}.topbar h1{font-size:21px}}
 </style></head><body>
 <nav>
   <div class="brand"><span class="logo">🐟</span><div><b>大肥鱼</b><i>DSCHAT CONSOLE</i></div></div>
@@ -3020,7 +3029,7 @@ async function loadState(){
     if (v.lastUserAt) bits.push('他上次说话 ' + ago(v.lastUserAt));
     return '<div class="prow"><b>' + (nm ? esc(nm) + ' ' : '') + u + '</b><span class="dim">'
       + (bits.length ? bits.join(' · ') : '今天还没有记录') + '</span></div>';
-  }).join('') + '</div>' : '<div class="empty" style="margin-top:10px;padding:22px 16px">今天还没主动说过话</div>';
+  }).join('') + '</div>' : '<div class="empty" style="margin-top:10px;padding:22px 16px">今天还没有主动消息。<br>有新的主动消息时，会显示在这里。</div>';
   $('#statusBox').innerHTML =
     '<div class="card"><div class="row"><b>桥接</b>' + (b.alive ? '<span class="ok">运行中 pid ' + b.pid + '</span>' : '<span class="bad">没在跑</span>')
     + '<b style="margin-left:16px">QQ</b>' + (l ? '<span class="ok">' + l.nickname + '（' + l.user_id + '）</span>' : '<span class="bad">未登录</span>')
