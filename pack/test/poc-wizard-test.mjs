@@ -37,7 +37,7 @@ check('触发条件：配好了就不弹，没配才弹', () => {
 
 check('向导只走已有接口，不发明后门', () => {
   const start = ui.indexOf('async function wzSave');
-  const end = ui.indexOf('loadState(); loadPersona();', start);
+  const end = ui.indexOf('loadState(); loadRecent(); loadPersona();', start);
   const seg = ui.slice(start, end > start ? end : start + 3000);
   const calls = (seg.match(/api\('([^']+)'/g) || []).map(s => s.slice(5, -1));
   const allowed = ['/api/setup', '/api/brain', '/api/restart', '/api/state', '/api/chat/send', '/api/chat/msgs'];

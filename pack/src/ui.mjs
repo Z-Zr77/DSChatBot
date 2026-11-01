@@ -2339,7 +2339,8 @@ pre{background:#0b0e13;border:1px solid var(--line);border-radius:12px;padding:1
 <section id="overview" class="on">
   <div id="qrSlot"></div>
   <div id="statusBox"></div>
-  <div class="card" style="margin-top:14px">
+  <div style="margin-top:12px"><button class="ghost btn" id="advBtn" onclick="toggleAdv()">显示更多：最近日志、备份、授权码、人物</button></div>
+  <div class="card advonly" style="margin-top:14px;display:none">
     <div class="row" style="justify-content:space-between"><b>最近发生的事</b>
       <button class="ghost btn" onclick="loadRecent()">刷新</button></div>
     <pre id="recentPre" class="recent">读取中…</pre>
@@ -2931,7 +2932,8 @@ function toggleAdv(force){
   if (!box || !btn) return;
   const open = (force === undefined) ? (box.style.display === 'none') : !!force;
   box.style.display = open ? '' : 'none';
-  btn.textContent = open ? '收起' : '显示更多：备份、授权码、人物、QQ 日志';
+  document.querySelectorAll('.advonly').forEach((n) => { n.style.display = open ? '' : 'none'; });
+  btn.textContent = open ? '收起' : '显示更多：最近日志、备份、授权码、人物';
   try { localStorage.setItem('advOpen', open ? '1' : '0'); } catch (e) {}
 }
 
@@ -3011,8 +3013,8 @@ async function loadState(){
     + '<div class="row" style="margin-top:10px;gap:8px"><button class="btn" onclick="openWorkDialog()">进入工作模式</button>'
     + '<button class="ghost btn" onclick="goPage(this.dataset.p)" data-p="config">「允许她动电脑」开关在设置里</button>'
     + '<button class="ghost btn" id="workStop" onclick="stopWork()" style="display:none">停止工作会话</button></div></div>'
-    + '<div class="card"><b>最近日志</b><pre>' + S.log.slice().reverse().map(esc).join('\n') + '</pre></div>'
     + '<div id="advBox" style="display:none">'
+    + '<div class="card"><b>最近日志</b>' + '<span style="float:right;font-size:12px"><a href="#log" style="color:#7fb2ff;text-decoration:none">看全部 →</a></span>' + '<pre>' + (S.log || []).slice(-3).reverse().map(esc).join('\n') + '</pre></div>'
     + '<div class="card"><div class="row" style="justify-content:space-between"><b>备份</b>'
     + '<button class="btn" onclick="runBackup()">立刻备份</button>'
     + '<div class="dim" id="bkInfo" style="margin-top:6px">读取中…</div>'
@@ -3026,9 +3028,9 @@ async function loadState(){
     + '<div class="card"><b>QQ 内核日志</b><div class="dim">这里就是原来那个黑窗口里的内容（隐藏内核模式下）</div><pre style="max-height:240px">'
     + (S.kernel && S.kernel.length ? S.kernel.slice().reverse().map(esc).join('\n') : '（还没抓到。安装隐藏内核并重启一次 QQ 后，这里会实时出现 NapCat 日志）') + '</pre></div>'
     + '</div>'
-    + '<div style="margin-top:12px"><button class="ghost btn" id="advBtn" onclick="toggleAdv()">显示更多：备份、授权码、人物、QQ 日志</button></div>';
+    ;
   paintQr(S, l);
-  try { if (localStorage.getItem('advOpen') === '1') toggleAdv(true); } catch (e) {}
+  try { if (localStorage.getItem('advOpen') === '1') { toggleAdv(true); setTimeout(loadRecent, 30); } } catch (e) {}
   renderDelCode();
   loadBackup();
   try { loadWork(); } catch (e) {}
@@ -3106,6 +3108,7 @@ function paintQr(S, l){
       + '<div class="qrbox"><img id="qrImg" alt="QQ 登录二维码"><div id="qrPh" class="qrempty"></div></div>'
       + '<p class="dim" id="qrMeta" style="margin:0 0 6px"></p>'
       + '<p class="dim" style="margin:0">用手机 QQ 切到小号扫码，扫完在手机上点「确认登录」。二维码过期会自动换，这一块自己更新，不会整页刷新。</p>'
+      + '<p class="dim" style="margin:6px 0 0;font-size:12px">手机上显示的登录地是这台电脑的网络出口（用了代理/热点就可能不是你在的城市），不是账号被盗。</p>'
       + '</div>';
     slot.dataset.built = '1';
     slot.dataset.at = '';
@@ -3341,16 +3344,13 @@ async function loadWork(){
       badge.style.borderColor = '#2f6b3c';
       info.innerHTML = '工作目录：<code>' + esc(WORK.root) + '</code><br>能力：' + (WORK.caps || []).map(esc).join('、')
         + ' · 剩余 ' + mins + ' 分钟（只有你发消息/点按钮才续期）'
-        + (WORK.inPlace ? '<br><b style="color:#e2b477">就地模式：改的是原文件</b>' : '')
-        + workExamplesHtml();
+        + (WORK.inPlace ? '<br><b style="color:#e2b477">就地模式：改的是原文件</b>' : '');
       stop.style.display = '';
     } else {
       badge.textContent = '未开启';
       badge.style.color = '';
       badge.style.borderColor = '';
-      info.innerHTML = '日常聊天她只能看、不能改。要她动手改文件，点下面按钮，先选一个工作目录。'
-        + '<div class="dim" style="margin-top:10px;font-size:12px">开起来之后就能说这类话（现在点会先带你去开）：</div>'
-        + workExamplesHtml(true);
+      info.innerHTML = '日常聊天她只能看、不能改。点「进入工作模式」选一个文件夹，她才能在里面读写。';
       stop.style.display = 'none';
     }
     renderWorkEdits(WORK.active ? (r && r.edits) || [] : []);
@@ -4168,7 +4168,7 @@ async function wzSave(){
   }
 }
 
-loadState(); loadPersona(); loadSelf(); loadCfg(); api('/api/delcode').then(renderDelCode).catch(() => {});
+loadState(); loadRecent(); loadPersona(); loadSelf(); loadCfg(); api('/api/delcode').then(renderDelCode).catch(() => {});
 setTimeout(() => { maybeWizard(); }, 600);
 setInterval(() => { if ($('#overview') && $('#overview').classList.contains('on')) { loadState(); loadRecent(); } }, 15000);
 

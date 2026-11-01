@@ -176,7 +176,7 @@ t('#28b net 能力门用 scope.epoch，不再引用不存在的 pinned（回归�
   assert.doesNotMatch(m[0], /pinned/);
   assert.match(m[0], /grants\.requireCap\(workKey\(conv\), 'net'/);
 });
-t('#29 权限选择挪到输入框（0.3.32）：聊天窗有三档，弹窗只显示当前档', () => {
+t('#29 权限只在聊天窗状态条三档；弹窗固定给的读写执行能力', () => {
   const dlg = fs.readFileSync(new URL('../src/workdialog.mjs', import.meta.url), 'utf8');
   const chat = fs.readFileSync(new URL('../src/chatui.html', import.meta.url), 'utf8');
   // v2：档位搬到顶部状态条（#modeBtn + #modeMenu）
@@ -186,8 +186,11 @@ t('#29 权限选择挪到输入框（0.3.32）：聊天窗有三档，弹窗只�
   assert.match(chat, /data-mode="write"/);
   assert.match(chat, /data-mode="full"/);
   assert.match(chat, /api\/work\/mode/);
-  assert.match(dlg, /wkModeNow/);
-  assert.match(dlg, /'fs:read', 'fs:write', 'net', 'exec'/);
+  // 2026-11-01：弹窗里的「权限」那行没有可选项、永远等于工作区内修改，删了——
+  // 权限只保留聊天窗状态条那一处，弹窗不再重复显示一个假的当前档
+  assert.doesNotMatch(dlg, /wkModeNow/);
+  assert.match(dlg, /开始工作/);
+  assert.match(dlg, /caps: \[ 'fs:read', 'fs:write', 'exec' \]/);
 });
 t('#30 settings 默认 net 是对象且开着', () => {
   const src = fs.readFileSync(new URL('../src/settings.mjs', import.meta.url), 'utf8');

@@ -75,10 +75,17 @@ t('/work 返回常用位置（桌面/文档/下载，只给真实存在的）', 
   assert.match(bridge, /places: commonPlaces\(\)/);
 });
 
-t('弹窗有常用位置按钮，点了自动勾「已经有东西」', () => {
-  assert.match(dialog, /id="wkPlaces"/);
-  assert.match(dialog, /for \(const pl of \(w && w\.places\) \|\| \[\]\)/);
-  assert.match(dialog, /q\('#wkExisting'\)\.checked = true/);
+t('弹窗收成两步：选文件夹 → 开始；例子可点、直接发给她', () => {
+  // 2026-11-01 用户："太乱了，还都能点，有的都没用"：
+  // 常用位置 / 「用已有的文件夹」/ 新建按钮 / 「已经有东西」勾选框都删了（有东西也直接用）
+  assert.doesNotMatch(dialog, /id="wkPlaces"/);
+  assert.doesNotMatch(dialog, /id="wkExisting"/);
+  assert.doesNotMatch(dialog, /id="wkSug"/);
+  assert.match(dialog, /id="wkRoot"/);
+  assert.match(dialog, /id="wkFirst"/);
+  assert.match(dialog, /window\.__WK_EXAMPLES|const EX = /);
+  assert.match(dialog, /\/api\/chat\/send/);
+  assert.match(dialog, /useExisting: true, confirmWrite: true/);
 });
 
 console.log('\n' + (fail === 0 ? 'PASS' : 'FAIL') + ' ' + pass + ' / FAIL ' + fail);
