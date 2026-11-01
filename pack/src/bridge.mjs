@@ -35,6 +35,7 @@ import * as draw from './draw.mjs';
 import * as loops from './loops.mjs';
 import * as self from './self.mjs';
 import * as imageintent from './imageintent.mjs';
+import * as taboos from './taboos.mjs';
 import * as scenes from './scenes.mjs';
 import * as daily from './daily.mjs';
 import * as life from './life.mjs';
@@ -3217,6 +3218,14 @@ async function replyNowInner(conv, body, extras = {}) {
   // 她自己说了去睡：睡着期间不再接话（真睡着的人不会秒回）。
   // 但他要是一直敲（20 分钟内 3 条以上），就当把她叫醒——这一点也交给状态，不是按钟点写死。
   const mkSleep = memKeyOf(conv);
+  // 他说「别提」的这一句，哪怕她这轮没接（睡着了），禁令也要留下。QQ 不走这条。
+  if (!extras.proactive && taboos.forCompanion(conv)) {
+    try {
+      const tr = taboos.note(mkSleep, __userSaid);
+      if (tr && tr.added.length) log('[taboo] 记下不提', tr.added.join('、'));
+      if (tr && tr.lifted.length) log('[taboo] 可以说了', tr.lifted.join('、'));
+    } catch (e) { log('[taboo] note fail', e.message); }
+  }
   if (!extras.proactive && !extras.wake && mind.isAsleep(mkSleep)) {
     const knocks = recentKnocks(mkSleep, 20 * 60e3);
     if (knocks >= 3) {
@@ -3287,6 +3296,7 @@ async function replyNowInner(conv, body, extras = {}) {
       }
     } catch {}
   }
+  const tabooBlock = taboos.forCompanion(conv) ? (() => { try { return taboos.render(mk); } catch { return ''; } })() : '';
   let __qvec = null;
   if (!extras.proactive && memory.embOn()) { try { __qvec = await memory.embedText(body, MEM_EMB_CFG()); } catch {} }
   const memInfo = memory.render(mk, extras.proactive ? '' : body, { vec: __qvec, vecSig: MEM_EMB_SIG(), place: (lifeHere() || {}).place });
@@ -3365,6 +3375,7 @@ async function replyNowInner(conv, body, extras = {}) {
         selfieLookLine(),
         demandNote(mk),
         lessonsNote,
+        tabooBlock,
         sleepNote(mk),
         sleepOff() ? NO_SLEEP_NOTE : '',
         wakeLine,
@@ -3417,6 +3428,7 @@ async function replyNowInner(conv, body, extras = {}) {
         selfieLookLine(),
         demandNote(mk),
         lessonsNote,
+        tabooBlock,
         sleepNote(mk),
         sleepOff() ? NO_SLEEP_NOTE : '',
         wakeLine,
@@ -3759,6 +3771,22 @@ async function replyNowInner(conv, body, extras = {}) {
     }
     photoMust = photoOwed && (photoClaim || photoTagged);
   }
+  // 模型还是把禁忌说出来了：整句拿掉；一句不剩就换一句不点名的话。照片标签已经拆过，这里只改要发出去的字。
+  // 先改字再补离开：空话仍由下面的 seal 接住，离开句里若又带上禁忌词再挡一次。只对电脑聊天窗。
+  const applyTaboo = (text) => {
+    if (!taboos.forCompanion(conv)) return String(text || '');
+    try {
+      const topics = taboos.activeTopics(mk);
+      const allow = extras.proactive ? [] : taboos.opened(__userSaid, topics);
+      const g = taboos.guard(text, topics, { allow });
+      if (g.hit) {
+        log('[taboo] 回复里碰到了不该提的，改掉', g.hit);
+        return g.text;
+      }
+    } catch (e) { log('[taboo] guard fail', e.message); }
+    return String(text || '');
+  };
+  out = applyTaboo(out);
   // 她先开的这场还没结束：空话 / 省略号 / 只写了去睡的标签，都不能变成沉默。
   let sealedLeave = false;
   if (!extras.proactive && outreachHold(conv, mk)) {
@@ -3776,6 +3804,13 @@ async function replyNowInner(conv, body, extras = {}) {
       sealedLeave = true;
       if (sealed.sleep && !ex.sleepHours && !mind.isAsleep(mk)) ex.sleepHours = 7;
       if (!forcedLeave) forcedLeave = { reason: sealed.reason || 'busy', what: '' };
+    }
+  }
+  {
+    const cleaned = applyTaboo(out);
+    if (cleaned !== String(out || '')) {
+      out = cleaned;
+      if (sealedLeave && !outreach.looksLikeLeave(out)) sealedLeave = false;
     }
   }
   if (extras.dry) {
