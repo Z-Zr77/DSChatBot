@@ -40,7 +40,15 @@ function audit(label, html) {
     return !re.test(html) && !html.includes('id=\\"' + id + '\\"');
   });
   // 允许动态创建的 id（模板里拼出来的）：只报告数量，不硬失败
-  const hardNoEl = noEl.filter((id) => /^(wk|br|s[A-Z]|btn|work|perm|mem|log|qr|upd|cfg|owner|dv|ig)/.test(id));
+  // 0.7.4 起模型供应商下拉是 providerOptions('brProvider', …) 生成的，
+  // 页面里不会有 id="brProvider" 这个字面量，只有调用点。这类算"存在"——
+  // 但要求生成函数本身真的定义了，否则就是把一个真 bug 放过去。
+  const dynIds = new Set();
+  for (const m of html.matchAll(/(?:providerOptions|providerSelect)\(\s*['"]([A-Za-z][\w-]*)['"]/g)) dynIds.add(m[1]);
+  if (dynIds.size) {
+    check(label + '：动态生成的 id 有对应的生成函数', /function\s+providerOptions\s*\(/.test(html), '调用了 providerOptions 但没定义');
+  }
+  const hardNoEl = noEl.filter((id) => !dynIds.has(id) && /^(wk|br|s[A-Z]|btn|work|perm|mem|log|qr|upd|cfg|owner|dv|ig)/.test(id));
   check(label + '：脚本引用的 id 都在页面里', hardNoEl.length === 0, '找不到元素：' + hardNoEl.join(','));
 
   check(label + '：页面上没有裸 undefined', !/>\s*undefined\s*</.test(html) && !/undefined<\/div>/.test(html), '页面里出现了 undefined 文本');
