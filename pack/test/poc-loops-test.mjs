@@ -74,7 +74,7 @@ t('没有截止时间的事不会自己过期（他一直想要的那种）', ()
 });
 
 t('结掉的事 3 天后从表里清走，不占地方', () => {
-  loops.close(U, { tag: 'case', evidence: '发过了' });
+  loops.close(U, { tag: 'case', evidence: '发过了', at: NOW });
   const db = loops.sweep(U, NOW + 5 * DAY);
   assert.equal(db.items.length, 0, JSON.stringify(db.items));
 });

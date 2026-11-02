@@ -1995,7 +1995,34 @@ const server = http.createServer(async (req, res) => {
       }
       if (b.ownerUin !== undefined) {
         const owner = String(b.ownerUin || '').replace(/\D/g, '').slice(0, 12);
+        const before = String(s.qq?.ownerUin || s.qq?.master || '');
         patch.qq.ownerUin = owner; patch.qq.master = owner;
+        // 之前没设主人时，记忆/状态存在 local 名下；第一次填上号就把这些搬过去，
+        // 否则她会"记得的事全丢"，看起来像记忆不生效。
+        if (owner && owner !== before) {
+          try {
+            const moves = [
+              ['agent-home/memory/people', '.json'],
+              ['state', '.json'],
+              ['loops', '.json'],
+              ['chat', '.jsonl'],
+            ];
+            for (const [dir, ext] of moves) {
+              const to = path.join(PATHS.data, dir, owner + ext);
+              if (fs.existsSync(to)) continue;
+              // 先看 local 名下，再看上一个主人号（手滑填错号时也能救回来）
+              for (const src of ['local', before]) {
+                if (!src || src === owner) continue;
+                const from = path.join(PATHS.data, dir, src + ext);
+                if (fs.existsSync(from)) {
+                  fs.mkdirSync(path.dirname(to), { recursive: true });
+                  fs.copyFileSync(from, to);
+                  break;
+                }
+              }
+            }
+          } catch (e) {}
+        }
       }
       if (b.name !== undefined) patch.qq.name = String(b.name || '').trim().slice(0, 24);
       if (b.introDone !== undefined) patch.intro = { ...(s.intro || {}), done: !!b.introDone };
@@ -2662,9 +2689,9 @@ __CONSOLE_STYLE__
 
 <section id="memory">
   <div class="toolbar">
-    <label for="memOwnerSel">谁是主人</label>
-    <select id="memOwnerSel" class="w200" onchange="setOwnerFromGalaxy(this.value)"></select>
-    <span class="hint" id="memOwnerHint">选中的人会被标成 👑</span>
+    <span class="hint">主人：</span><b id="memOwnerText">还没设</b>
+    <a href="#qq" onclick="goPage('qq');return false" style="color:#7fb2ff;font-size:12px">去 QQ 页改</a>
+    <span class="hint" id="memOwnerHint">只有主人能动电脑、看记忆</span>
     <span class="spacer"></span><span class="dim" id="memGalaxyStats"></span>
   </div>
   <!-- 「记住了谁」下线：点星图里的簇就能看那个人的记忆。这两个元素留给列表编辑用，隐藏 -->
@@ -3659,13 +3686,11 @@ async function loadMem(){
       }
       GALAXY = g.people;
       renderMemoryGraph(flat);
-      const sel = $('#memOwnerSel');
-      if (sel) {
-        const cur = String(g.owner || '');
-        sel.innerHTML = '<option value="">还没设主人</option>' + g.people.map(p =>
-          '<option value="' + p.uin + '"' + (p.uin === cur ? ' selected' : '') + '>' +
-          (p.uin === 'local' ? '本机（还没填 QQ）' : esc(p.name) + '（' + p.uin + '）') + '</option>').join('');
-      }
+      // 主人只在 QQ 页设置，这里只显示，避免两处都能改导致记忆挂到不同的号上
+      { const cur = String(g.owner || '');
+        const per = g.people.find(p => String(p.uin) === cur);
+        const t = $('#memOwnerText');
+        if (t) t.textContent = cur ? (per ? (per.uin === 'local' ? '本机（还没填 QQ）' : esc(per.name) + '（' + per.uin + '）') : cur) : '还没设'; }
       const st = $('#memGalaxyStats');
       if (st) st.textContent = '共 ' + flat.length + ' 条 · ' + g.people.length + ' 个人';
       paintMemoryPanes(g.people);
@@ -4800,7 +4825,8 @@ async function wzSave(){
 
 loadState(); loadRecent(); loadPersona(); loadSelf(); loadCfg();
 setTimeout(function(){ refreshCaps(); paintOwnerHint(); qqLoginPaintSteps(); qqLoginRefresh(); }, 800);
-setTimeout(() => { maybeWizard(); }, 600);
+// 第一次见面卡片下线：名字只在人设里生效，弹一次反而让人以为名字能改她
+// setTimeout(() => { maybeWizard(); }, 600);
 setTimeout(() => { loadQqGuide(); }, 600);
 setInterval(() => { if ($('#overview') && $('#overview').classList.contains('on')) { loadState(); loadRecent(); } }, 15000);
 

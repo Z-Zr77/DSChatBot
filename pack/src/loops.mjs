@@ -98,9 +98,9 @@ export function open(uin, now = Date.now()) {
 }
 
 // 做完/放弃了。tag 传了就按 tag 关（她真发了照片 → 所有"要照片"的事一起了结）
-export function close(uin, { id = '', tag = '', evidence = '', how = 'done' } = {}) {
+export function close(uin, { id = '', tag = '', evidence = '', how = 'done', at = 0 } = {}) {
   const db = load(uin);
-  const now = Date.now();
+  const now = at || Date.now();
   let n = 0;
   for (const it of db.items) {
     if (it.status !== 'open') continue;

@@ -12,7 +12,7 @@ const TEMPLATE = path.join(HERE, '..', 'assets', 'persona.default.draft.md');
 // 模板首行是「你是「{NAME}」，{AGE} 岁，住{CITY}。{PERSONA}」
 // 年龄/城市/自述没填时不能留下「 岁，住。」这种残句，所以整句重写。
 function firstLine(name, age, city, persona) {
-  const who = String(name || '她').trim();
+  const who = String(name || '大肥鱼').trim();
   const bits = [];
   if (String(age || '').trim()) bits.push(String(age).trim() + ' 岁');
   if (String(city || '').trim()) bits.push('住' + String(city).trim());
@@ -37,7 +37,7 @@ export function ensurePersonaFile(dest, opts = {}) {
     if (opts.relationship) tpl = replaceRelationship(tpl, opts.relationship);
     tpl = tpl.replace(/^你是「\{NAME\}」.*$/m, line);
     tpl = tpl
-      .replace(/\{NAME\}/g, String(opts.name || '她').trim())
+      .replace(/\{NAME\}/g, String(opts.name || '大肥鱼').trim())
       .replace(/\{AGE\}/g, String(opts.age || '').trim())
       .replace(/\{CITY\}/g, String(opts.city || '').trim())
       .replace(/\{PERSONA\}/g, String(opts.persona || '').trim());
