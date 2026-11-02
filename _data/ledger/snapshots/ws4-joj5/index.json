@@ -1,0 +1,18 @@
+{
+  "items": [
+    {
+      "at": 1793387449002,
+      "before": null,
+      "after": {
+        "size": 0
+      },
+      "status": "done",
+      "id": "emvvckzvq8vvf",
+      "rel": "sessions",
+      "action": "delete",
+      "trashRel": ".trash/mvvckzvo-sessions",
+      "target": "E:\\DSChatBot\\data\\work\\.trash\\mvvckzvo-sessions",
+      "kind": "dir"
+    }
+  ]
+}

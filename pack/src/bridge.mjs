@@ -4117,6 +4117,22 @@ async function browseTick() {
 const FORCE_FILE = path.join(RQ, 'proactive.once');
 
 // 通道注册：她住在桥接进程里，QQ 只是出口之一。出口堵了她照样跑（见 channels.mjs）。
+// 跨机器/跨容器发文件：QQ 那边（NapCat）在自己的文件系统里找不到我们的路径。
+// 统一转成 base64 塞进 OneBot 的 file 字段，谁都不用共享目录。
+function segToB64(seg) {
+  try {
+    if (!seg || !seg.data || typeof seg.data.file !== 'string') return seg;
+    const raw = seg.data.file;
+    if (!raw || /^base64:\/\//.test(raw) || /^https?:/i.test(raw)) return seg;
+    let p = raw.replace(/^file:\/\/\/([A-Za-z]:)/, '$1').replace(/^file:\/\//, '');
+    try { p = decodeURIComponent(p); } catch {}
+    if (!fs.existsSync(p)) return seg;
+    const st = fs.statSync(p);
+    if (!st.isFile() || st.size > 8 * 1024 * 1024) return seg;
+    return { ...seg, data: { ...seg.data, file: 'base64://' + fs.readFileSync(p).toString('base64') } };
+  } catch { return seg; }
+}
+
 // QQ 是"插件"：插件关掉就不注册这条腿，也不去连OneBot —— 内核照样活。
 const QQ_ON = plugins.isEnabled(SETUP, 'qq');
 if (!QQ_ON) log('[plugins] QQ 通道未启用：只走本地窗口');
@@ -4128,7 +4144,7 @@ if (QQ_ON) channels.register({
     const isGroup = conv.kind === 'group';
     const api = isGroup ? 'send_group_msg' : 'send_private_msg';
     const params = isGroup ? { group_id: conv.id } : { user_id: conv.id };
-    params.message = out && out.seg ? [out.seg] : String((out && out.text) || '');
+    params.message = out && out.seg ? [segToB64(out.seg)] : String((out && out.text) || '');
     const r = await tryApi(api, params);
     const ok = !!(r && r.ok);
     if (!ok) return { ok: false, err: (r && (r.err || r.error)) || '没发出去' };

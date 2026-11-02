@@ -1,0 +1,28 @@
+{
+  "items": [
+    {
+      "at": 1793386779216,
+      "before": null,
+      "after": {
+        "size": 0
+      },
+      "status": "done",
+      "id": "emvvc6n2id4ds",
+      "rel": "olddir",
+      "action": "delete",
+      "trashRel": ".trash/mvvc6n2g-olddir",
+      "target": "E:\\DSChatBot\\data\\work\\sessions\\2026-10-31-dirtest\\.trash\\mvvc6n2g-olddir",
+      "kind": "dir"
+    },
+    {
+      "id": "rmvvc8yij",
+      "rel": "olddir",
+      "at": 1793386887355,
+      "action": "revert",
+      "revertOf": "emvvc6n2id4ds",
+      "before": null,
+      "after": null,
+      "note": "restored"
+    }
+  ]
+}

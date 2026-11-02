@@ -1,0 +1,18 @@
+{
+  "items": [
+    {
+      "at": 1793386234600,
+      "before": null,
+      "after": {
+        "sha": "40394eba341cf47ae30ba244c32075cb1fb095ed1607367b070de1f2661916ce",
+        "size": 603
+      },
+      "status": "done",
+      "id": "emvvbuyuab6bt",
+      "rel": "audit.jsonl",
+      "action": "delete",
+      "trashRel": ".trash/mvvbuyu8-audit.jsonl",
+      "target": "E:\\DSChatBot\\data\\work\\.trash\\mvvbuyu8-audit.jsonl"
+    }
+  ]
+}

@@ -1,0 +1,259 @@
+{
+  "voice": {
+    "enabled": true
+  },
+  "voiceName": "B · 中文女声",
+  "tts": {
+    "provider": "aliyun",
+    "baseUrl": "",
+    "model": "cosyvoice-v2",
+    "key": "",
+    "voiceId": "longwan_v2"
+  },
+  "draw": {
+    "enabled": true,
+    "provider": "auto",
+    "baseUrl": "",
+    "model": "doubao-seedream-5-0-flash-260915",
+    "key": "ark-57f8f363-c76f-457e-a1d4-62a174ddb5f2-302c4",
+    "perDay": 1,
+    "ref": true,
+    "sendRef": false,
+    "keepMin": 60,
+    "ownerPush": false
+  },
+  "proactive": {
+    "enabled": true,
+    "maxPerDay": 8,
+    "minGapMin": 15,
+    "quietMin": 10,
+    "chance": 0.9,
+    "activeFrom": "08:00",
+    "activeTo": "01:00",
+    "tickMin": 5,
+    "morningBoost": true
+  },
+  "browse": {
+    "enabled": true,
+    "perDay": 1,
+    "fromTime": "10:00",
+    "toTime": "23:00"
+  },
+  "reply": {
+    "debounceMs": 4500,
+    "privateDelayMs": 2000,
+    "groupDelayMs": 4000,
+    "maxConsecutive": 3
+  },
+  "tools": {
+    "enabled": true,
+    "maxRounds": 6,
+    "ownerOnly": true
+  },
+  "dev": {
+    "noSleep": false
+  },
+  "work": {
+    "toolsEnabled": true,
+    "defaultMode": "write",
+    "approval": "ask",
+    "lastRoot": "E:\\DSChatBot\\data\\work",
+    "ledgerDays": 30,
+    "readRoots": [],
+    "timeoutMin": 30,
+    "exec": {
+      "mode": "off",
+      "allow": [],
+      "timeoutMs": 60000,
+      "maxOutput": 8000
+    },
+    "net": {
+      "enabled": true,
+      "allowHosts": [],
+      "maxBytes": 2097152,
+      "timeoutMs": 20000
+    },
+    "desktop": false,
+    "suggestRoot": ""
+  },
+  "backup": {
+    "enabled": true,
+    "dir": "",
+    "keep": 7,
+    "mode": "normal",
+    "dailyHour": 4
+  },
+  "names": [],
+  "blacklist": {
+    "uins": [],
+    "mode": "curse"
+  },
+  "owner": {
+    "gender": ""
+  },
+  "addr": {
+    "ownerClose": "",
+    "ownerCloseAt": 60,
+    "othersBro": true
+  },
+  "groups": {
+    "enabled": true,
+    "allow": [],
+    "block": [],
+    "needCall": true,
+    "followMin": 5,
+    "followAuto": true,
+    "maxChain": 3,
+    "joinSec": 4,
+    "maxJoin": 8,
+    "recallCount": 8,
+    "gapSec": 8,
+    "spicy": 1,
+    "dayCap": 0,
+    "monthCap": 0
+  },
+  "stickers": {
+    "max": 300,
+    "collectFromUser": true,
+    "collectFromGroup": true
+  },
+  "qzone": {
+    "enabled": true,
+    "perDay": 1,
+    "fromTime": "10:00",
+    "toTime": "23:00",
+    "chance": 0.7
+  },
+  "napcat": {
+    "host": "127.0.0.1"
+  },
+  "guard": {
+    "auto": true
+  },
+  "qq": {
+    "enabled": true
+  },
+  "danger": {
+    "delPwdHash": "385ad5955fc20f7fd6544898222a92a22c0142d87f737e5ca06b4e837a037d7f"
+  },
+  "notify": {
+    "channel": "off",
+    "url": "",
+    "topic": "",
+    "when": "local"
+  },
+  "fallback": {
+    "chat": true,
+    "vision": true,
+    "draw": false,
+    "asr": true,
+    "tts": true
+  },
+  "ui": {
+    "lan": true,
+    "pass": "764080",
+    "qrToken": "0982acdb2071af7a15"
+  },
+  "life": {
+    "plan": true,
+    "journal": true,
+    "events": true,
+    "reviewMin": 150
+  },
+  "drawStyle": "anime",
+  "prompts": {
+    "style": "二次元动漫插画风格，线条干净、上色柔和。",
+    "selfie": "自拍视角：镜头离脸很近，单人，近景，脸占画面主导，只拍上半身或肩部以上；画面里不要出现手机、自拍杆、三脚架或任何屏幕，也不要对着镜子拍、不要画中画；手最多露一点手指边缘，没有手也行。",
+    "selfieFull": "全身照（不是自拍）：像有人在旁边拿手机替她拍下这一刻，从头到脚整个人都在画面里——头顶、手、脚和脚下地面都别裁掉，人物占画面高度八成左右。只拍到腰、只到膝盖、半身，都算画错。",
+    "selfieBan": "禁止：文字、边框、多格拼图、贴纸、设定稿或立绘、手机或屏幕出现在画面里、自拍杆与三脚架、镜子与画中画、夸张大特写的手、多条胳膊或畸形手指。",
+    "ref": "参考图只是设定稿：只参考这个人的长相、发型、耳鳍、服装和配色，绝不要复制参考图的白色背景、正面/侧面/背面三视图排版、全身立绘或线稿风格。",
+    "scene": "环境细节要有生活痕迹（家具、杂物、光源），构图自然，像随手拍的。",
+    "sceneBan": "禁止：人物、人脸、文字、水印、边框、多格拼图、画中画、手机与屏幕。"
+  },
+  "talk": {
+    "pokeLines": [
+      "别戳",
+      "戳啥戳",
+      "手欠啊",
+      "有话说",
+      "干嘛",
+      "……",
+      "戳我干嘛",
+      "再戳咬你"
+    ],
+    "fallbackPlan": [
+      "12:30 卧室｜刚起来，人还没醒透",
+      "13:40 厨房｜煮了碗面当早午饭",
+      "15:00 书桌前｜坐在电脑前干自己的活",
+      "18:30 客厅｜点外卖，边吃边刷手机",
+      "21:00 卧室｜打游戏或者追剧",
+      "01:30 卧室｜躺床上刷手机，说好早睡又没睡"
+    ],
+    "lifePool": [
+      "在打游戏，刚连跪两把",
+      "躺床上刷手机，说好十二点睡结果一点了",
+      "在剪一个破视频，卡在渲染",
+      "刚吃完泡面，油还没收",
+      "在听歌，单曲循环一首老歌",
+      "被闹钟叫醒，赖在床上不想起",
+      "在煮面，水还没开",
+      "刚洗完脸，脑子还是木的",
+      "在赶一个明天要交的东西",
+      "在外面走，太阳有点大",
+      "刚睡完午觉，越睡越困",
+      "在改一个文件，改了八遍",
+      "在便利店买水，顺便站着吹空调"
+    ]
+  },
+  "budget": {
+    "enabled": true,
+    "monthlyCap": 31,
+    "notifyExtra": 10,
+    "prices": {
+      "inputPerM": 2,
+      "cacheHitPerM": 0.5,
+      "outputPerM": 8,
+      "ttsPerKChar": 0.2,
+      "asrPerSec": 0.0007,
+      "visionPerCall": 0.01
+    }
+  },
+  "memory": {
+    "logKeep": 80,
+    "halfLifeFact": 45,
+    "halfLifeTrivia": 14,
+    "digest": true,
+    "embed": {
+      "on": true,
+      "enabled": true,
+      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "model": "text-embedding-v3",
+      "dim": 512
+    },
+    "autoCorrect": true
+  },
+  "norms": {
+    "enabled": true,
+    "time": true,
+    "body": true,
+    "owner": true,
+    "memory": true,
+    "schedule": true,
+    "relation": true,
+    "social": true,
+    "repeat": true
+  },
+  "asr": {
+    "enabled": true,
+    "provider": "local",
+    "baseUrl": "",
+    "model": ""
+  },
+  "vision": {
+    "baseUrl": "",
+    "model": ""
+  },
+  "persona": {
+    "name": "大肥鱼"
+  }
+}

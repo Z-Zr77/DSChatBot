@@ -13,6 +13,8 @@ COPY deploy/app-package.json ./package.json
 RUN npm install --omit=dev && npm cache clean --force
 
 COPY pack/src ./src
+COPY pack/plugins ./plugins
+COPY pack/assets ./assets
 COPY deploy/supervise.mjs ./src/supervise.mjs
 
 EXPOSE 3070

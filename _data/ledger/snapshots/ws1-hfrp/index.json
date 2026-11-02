@@ -1,0 +1,45 @@
+{
+  "items": [
+    {
+      "id": "emvuuhm9ntzbl",
+      "rel": "todo.txt",
+      "at": 1793357058306,
+      "action": "edit",
+      "before": {
+        "sha": "7b6f2c3b6539f99513fe4d7126b0f22e846bec4a81bf742d060dd7788711c481",
+        "size": 36,
+        "backup": "emvuuhm9ntzbl\\before"
+      },
+      "after": {
+        "sha": "0a09f4a6e6cb85a049ed955ebe7cb637df93d9ae032668a6f4a7f571f70058ed",
+        "size": 48
+      }
+    },
+    {
+      "id": "rmvuuiyal",
+      "rel": "todo.txt",
+      "at": 1793357120541,
+      "action": "revert",
+      "revertOf": "emvuuhm9ntzbl",
+      "before": null,
+      "after": {
+        "sha": "7b6f2c3b6539f99513fe4d7126b0f22e846bec4a81bf742d060dd7788711c481",
+        "size": 36,
+        "backup": "emvuuhm9ntzbl\\before"
+      }
+    },
+    {
+      "id": "rmvuuj4w9",
+      "rel": "todo.txt",
+      "at": 1793357129097,
+      "action": "revert",
+      "revertOf": "emvuuhm9ntzbl",
+      "before": null,
+      "after": {
+        "sha": "7b6f2c3b6539f99513fe4d7126b0f22e846bec4a81bf742d060dd7788711c481",
+        "size": 36,
+        "backup": "emvuuhm9ntzbl\\before"
+      }
+    }
+  ]
+}

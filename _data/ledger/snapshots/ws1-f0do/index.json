@@ -1,0 +1,33 @@
+{
+  "items": [
+    {
+      "id": "emvuxf3d09b6g",
+      "rel": "plan.txt",
+      "at": 1793361979338,
+      "action": "edit",
+      "before": {
+        "sha": "a680f0ed9afce2b0e76a4d7a539144f9f4b343c4212a188e27e23499dd1da10b",
+        "size": 10,
+        "backup": "emvuxf3d09b6g\\before"
+      },
+      "after": {
+        "sha": "baa34fdc1309e2e81bcc5b13f3a92f41ec42fddbe2ec2eb7c74cc4b167b17e21",
+        "size": 20
+      }
+    },
+    {
+      "id": "rmvuxfwts",
+      "rel": "plan.txt",
+      "at": 1793362017520,
+      "action": "revert",
+      "revertOf": "emvuxf3d09b6g",
+      "before": null,
+      "after": {
+        "sha": "a680f0ed9afce2b0e76a4d7a539144f9f4b343c4212a188e27e23499dd1da10b",
+        "size": 10,
+        "backup": "emvuxf3d09b6g\\before"
+      },
+      "note": "restored"
+    }
+  ]
+}
