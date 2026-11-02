@@ -41,13 +41,30 @@ try {
   t('关系只在人设正文里改，第一次见面和 QQ 向导不再问身份', () => {
     const wizard = fs.readFileSync(path.join(root, 'src/wizard.html'), 'utf8');
     const ui = fs.readFileSync(path.join(root, 'src/ui.mjs'), 'utf8');
-    assert.ok(!wizard.includes('关系/身份') && !wizard.includes('id="relationship"'));
-    const card = ui.slice(ui.indexOf("box.innerHTML = ''"), ui.indexOf('document.body.appendChild(box)'));
-    assert.ok(!card.includes('关系/身份') && !card.includes('wzRelationship'));
+    const launch = fs.readFileSync(path.join(root, 'launch.mjs'), 'utf8');
+    const bridge = fs.readFileSync(path.join(root, 'src/bridge.mjs'), 'utf8');
+    assert.ok(!wizard.includes('关系/身份') && !wizard.includes('id="relationship"') && !wizard.includes('自定义身份') && !wizard.includes('relationship'));
+    const cardStart = ui.indexOf('async function maybeWizard');
+    const cardEnd = ui.indexOf('async function wzSave', cardStart);
+    const card = ui.slice(cardStart, cardEnd);
+    assert.ok(card.includes('第一次见面') && card.includes('id="wzName"'));
+    assert.ok(!card.includes('关系/身份') && !card.includes('wzRelationship') && !card.includes('自定义身份'));
+    const save = ui.slice(cardEnd, ui.indexOf('loadState(); loadRecent();', cardEnd));
+    assert.ok(!save.includes('relationship'));
+    const setup = ui.slice(ui.indexOf("if (p === '/api/setup')"), ui.indexOf("if (p === '/api/open-wizard'"));
+    assert.ok(setup.includes('/api/setup') && !setup.includes('relationship') && !setup.includes('女友'));
+    const personaGet = ui.slice(ui.indexOf("if (p === '/api/persona')"), ui.indexOf("if (p === '/api/consolidate')"));
+    assert.ok(personaGet.includes('ensurePersonaFile') && !personaGet.includes('relationship'));
     assert.ok(ui.includes('关系/身份：朋友'));
+    assert.ok(!ui.includes('setPersonaRelationship'));
     assert.ok(wizard.includes("post('/api/save'"));
-    assert.ok(ui.includes('setPersonaRelationship(PERSONA, relationship'));
-    assert.ok(fs.readFileSync(path.join(root, 'launch.mjs'), 'utf8').includes('setPersonaRelationship(PATHS.persona, relationship'));
+    assert.ok(!launch.includes('setPersonaRelationship'));
+    const seed = launch.slice(launch.indexOf('function seedDefaults'), launch.indexOf('function portOpen'));
+    assert.ok(seed.includes('ensurePersonaFile') && !seed.includes('relationship'));
+    const wizSave = launch.slice(launch.indexOf("u.pathname === '/api/save'"), launch.indexOf("u.pathname === '/api/finish'"));
+    assert.ok(wizSave.includes('delete qqPatch.relationship') && !wizSave.includes('setPersonaRelationship'));
+    const boot = bridge.slice(bridge.indexOf('ensurePersonaFile(cfg.personaSrc'), bridge.indexOf('if (pr.created)'));
+    assert.ok(boot.includes('name: SETUP.qq.name') && !boot.includes('relationship'));
   });
   t('electron-builder 实际过滤器排除嵌套私有文件，保留代码与默认人设', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));

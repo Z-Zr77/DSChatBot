@@ -62,14 +62,20 @@ check('地址和模型默认收在「高级」里，做完能去聊天窗', () =
 });
 
 check('第一次见面卡不再问关系/身份', () => {
-  const start = ui.indexOf("box.innerHTML = ''");
-  const end = ui.indexOf('document.body.appendChild(box)', start);
+  const start = ui.indexOf('async function maybeWizard');
+  const end = ui.indexOf('async function wzSave', start);
   const card = ui.slice(start, end);
-  assert.ok(start > 0 && end > start, '找不到第一次见面的卡片');
-  assert.ok(!card.includes('关系/身份') && !card.includes('wzRelationship'), '卡片里还留着身份选择');
-  const save = ui.slice(ui.indexOf('async function wzSave'), ui.indexOf('loadState(); loadRecent();'));
+  assert.ok(start > 0 && end > start && card.includes('第一次见面') && card.includes('wzName'), '找不到第一次见面的卡片');
+  assert.ok(!card.includes('关系/身份') && !card.includes('wzRelationship') && !card.includes('自定义身份'), '卡片里还留着身份选择');
+  const save = ui.slice(end, ui.indexOf('loadState(); loadRecent();', end));
   assert.ok(!save.includes('relationship'), '保存时还在写身份');
   assert.ok(ui.includes('关系/身份：朋友'), '人设页没有告诉人去人格提示词里写关系');
+  const setup = ui.slice(ui.indexOf("if (p === '/api/setup')"), ui.indexOf("if (p === '/api/open-wizard'"));
+  assert.ok(setup.includes('/api/setup') && !setup.includes('relationship') && !setup.includes('女友'), 'setup 还在默认或保存关系');
+  const launch = fs.readFileSync(path.join(SRC, '..', 'launch.mjs'), 'utf8');
+  assert.ok(!launch.includes('setPersonaRelationship'), 'QQ 向导保存还在改人设里的身份');
+  const wizSave = launch.slice(launch.indexOf("u.pathname === '/api/save'"), launch.indexOf("u.pathname === '/api/finish'"));
+  assert.ok(wizSave.includes('delete qqPatch.relationship'), '向导保存没丢掉关系字段');
 });
 
 check('启动进控制台的第一次见面，QQ 向导不抢第一屏', () => {

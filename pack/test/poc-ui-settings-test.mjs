@@ -95,17 +95,36 @@ try {
   const g = await (await fetch(`http://127.0.0.1:${PORT}/api/brain`)).json();
   check('GET 回读是 keySet', g.keySet === true && /sk-reg/.test(g.keyMask), JSON.stringify(g));
 
+  const fresh = await (await fetch(`http://127.0.0.1:${PORT}/api/setup`)).json();
+  check('初次读取不默认关系/女友', fresh.relationship == null, JSON.stringify(fresh.relationship));
+  const personaPath = path.join(DATA, 'persona.md');
   for (const relationship of ['女友', '老婆', '朋友', '写作搭档']) {
     const response = await fetch(`http://127.0.0.1:${PORT}/api/setup`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ relationship }),
     });
     const result = await response.json();
-    const persona = fs.readFileSync(path.join(DATA, 'persona.md'), 'utf8');
+    const persona = fs.existsSync(personaPath) ? fs.readFileSync(personaPath, 'utf8') : '';
     const setup = await (await fetch(`http://127.0.0.1:${PORT}/api/setup`)).json();
-    check('身份保存接口写入并回读：' + relationship,
-      result.ok && persona.includes('关系/身份：' + relationship) && setup.relationship === relationship);
+    const file = JSON.parse(fs.readFileSync(path.join(DATA, 'setup.json'), 'utf8'));
+    check('第一次见面不再写入关系：' + relationship,
+      result.ok && !persona.includes('关系/身份：' + relationship) && setup.relationship == null && !file.qq.relationship);
   }
+  const seeded = JSON.parse(fs.readFileSync(path.join(DATA, 'setup.json'), 'utf8'));
+  seeded.qq = { ...(seeded.qq || {}), relationship: '女友' };
+  fs.writeFileSync(path.join(DATA, 'setup.json'), JSON.stringify(seeded));
+  const created = await (await fetch(`http://127.0.0.1:${PORT}/api/persona`)).json();
+  check('生成人设不套用 setup 里的关系', created && !String(created.text || '').includes('关系/身份'), String(created.text || '').slice(0, 180));
+  const meet = await fetch(`http://127.0.0.1:${PORT}/api/setup`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: '小夏', ownerUin: '10086001', relationship: '老婆' }),
+  });
+  const meetJson = await meet.json();
+  const meetRead = await (await fetch(`http://127.0.0.1:${PORT}/api/setup`)).json();
+  const meetFile = JSON.parse(fs.readFileSync(path.join(DATA, 'setup.json'), 'utf8'));
+  check('第一次见面只存名字和主人号',
+    meetJson.ok && meetRead.name === '小夏' && meetRead.ownerUin === '10086001' && meetRead.relationship == null && meetFile.qq.relationship !== '老婆',
+    JSON.stringify({ meetJson, meetRead, qq: meetFile.qq }));
 
   const snow = await fetch(`http://127.0.0.1:${PORT}/api/setup`, {
     method: 'POST', headers: { 'content-type': 'application/json' },

@@ -25,7 +25,7 @@ import * as budget from './budget.mjs';
 import { looksVision, resolveVision } from './capability.mjs';
 import { PATHS, loadSetup, saveSetup, APP, looksLikeNapCat, looksLikeSnowLuma, qqProtocolOf, qqClientDirOf, launcherNameIn, hasLauncher } from './paths.mjs';
 import { testKey } from './brain.mjs';
-import { ensurePersonaFile, setPersonaRelationship, cleanRelationship, relationshipOf } from './persona-default.mjs';
+import { ensurePersonaFile } from './persona-default.mjs';
 const RQ = PATHS.data;
 const RQ_AGENT = PATHS.agent;
 
@@ -1442,7 +1442,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'GET') {
         try {
           const su = loadSetup() || {};
-          ensurePersonaFile(PERSONA, { name: (su.qq || {}).name, age: (su.qq || {}).age, city: (su.qq || {}).city, persona: (su.qq || {}).persona, relationship: (su.qq || {}).relationship });
+          ensurePersonaFile(PERSONA, { name: (su.qq || {}).name, age: (su.qq || {}).age, city: (su.qq || {}).city, persona: (su.qq || {}).persona });
         } catch {}
         return send(res, 200, { text: readText(PERSONA) });
       }
@@ -1872,7 +1872,6 @@ const server = http.createServer(async (req, res) => {
           ownerUin: String(s.qq?.ownerUin || s.qq?.master || ''),
           uin: String(s.qq?.uin || ''),
           name: String(s.qq?.name || ''),
-          relationship: relationshipOf(readText(PERSONA)) || String(s.qq?.relationship || '女友'),
           protocol: s.qq?.protocol === 'snowluma' ? 'snowluma' : 'napcat',
           napcatDir: String(s.napcat?.dir || ''),
           snowlumaDir: String(s.snowluma?.dir || ''),
@@ -1898,12 +1897,6 @@ const server = http.createServer(async (req, res) => {
         patch.qq.ownerUin = owner; patch.qq.master = owner;
       }
       if (b.name !== undefined) patch.qq.name = String(b.name || '').trim().slice(0, 24);
-      if (b.relationship !== undefined) {
-        const relationship = cleanRelationship(b.relationship);
-        const result = setPersonaRelationship(PERSONA, relationship, { ...s.qq, ...patch.qq });
-        if (!result.ok) return send(res, 400, result);
-        patch.qq.relationship = relationship;
-      }
       saveSetup(patch);
       return send(res, 200, { ok: true, ownerUin: patch.qq.ownerUin || '', name: patch.qq.name || '' });
     }

@@ -67,7 +67,7 @@ function replaceRelationship(text, value) {
 }
 export function setPersonaRelationship(dest, value, opts = {}) {
   const relationship = cleanRelationship(value);
-  if (!relationship) return { ok: false, err: '请选择身份或填写自定义身份' };
+  if (!relationship) return { ok: false, err: '关系/身份不能为空' };
   const result = ensurePersonaFile(dest, { ...opts, relationship });
   if (!result.ok) return result;
   try {
