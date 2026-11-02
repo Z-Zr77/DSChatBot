@@ -26,7 +26,7 @@ import * as skills from './skills.mjs';
 import * as toolbox from './tools.mjs';
 import * as grants from './grants.mjs';
 import * as fsguard from './fsguard.mjs';
-import { wsUrlOf, wsHeadersOf, wsUrlWithToken } from './onebot.mjs';
+import { wsUrlOf, wsHeadersOf, wsUrlWithToken, openWs, httpHeadersOf } from './onebot.mjs';
 import * as snapshots from './snapshots.mjs';
 import * as backup from './backup.mjs';
 import * as exec from './exec.mjs';
@@ -1030,7 +1030,7 @@ async function tryApi(method, params) {
   try {
     const r = await fetch(`${cfg.wsHttp}/${method}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: httpHeadersOf(SETUP),
       body: JSON.stringify(params || {}),
       signal: AbortSignal.timeout(15000),
     });
@@ -2595,7 +2595,7 @@ async function segsText(segs, stripSelf) {
 async function httpApi(action, params) {
   const r = await fetch(`${cfg.wsHttp}/${action}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: httpHeadersOf(SETUP),
     body: JSON.stringify(params || {}),
   });
   const j = await r.json();
@@ -4274,7 +4274,7 @@ async function connectWs() {
     try {
       await new Promise((resolve, reject) => {
         if (fails === 0 && !downAt) log('connecting', WS_URL());
-        const ws = new WebSocket(WS_URL(), { headers: WS_HDR() });
+        const ws = openWs(wsUrlOf(SETUP, napHost()), WS_HDR());
         ws.addEventListener('open', () => {
           const gap = downAt ? Math.round((Date.now() - downAt) / 1000) : 0;
           backoff = 1000;

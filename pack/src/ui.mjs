@@ -1900,6 +1900,7 @@ const server = http.createServer(async (req, res) => {
         patch.onebot = { ...(s.onebot || {}) };
         if (ob.wsUrl !== undefined) patch.onebot.wsUrl = String(ob.wsUrl || '').trim().slice(0, 200);
         if (ob.accessToken !== undefined) patch.onebot.accessToken = String(ob.accessToken || '').trim().slice(0, 200);
+        if (ob.httpToken !== undefined) patch.onebot.httpToken = String(ob.httpToken || '').trim().slice(0, 200);
         if (ob.wsPort !== undefined) patch.onebot.wsPort = Number(ob.wsPort) || 3001;
       }
       if (b.ownerUin !== undefined) {
