@@ -4348,7 +4348,6 @@ function loadCredentialRefs() {
 loadCredentialRefs();
 try {
   const pr = ensurePersonaFile(cfg.personaSrc, {
-    relationship: (loadSetup().qq || {}).relationship,
     name: SETUP.qq.name, age: SETUP.qq.age, city: SETUP.qq.city, persona: SETUP.qq.persona,
   });
   if (pr.created) log('[persona] 首次启动：已用自带模板写了一份人设（控制台「她」页可改）');

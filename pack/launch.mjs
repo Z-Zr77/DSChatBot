@@ -10,7 +10,7 @@ import { spawn, execFile } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { PATHS, DATA, APP, LOC_FILE, ensureDirs, loadSetup, saveSetup, isConfigured } from './src/paths.mjs';
 import { testKey } from './src/brain.mjs';
-import { ensurePersonaFile, setPersonaRelationship, cleanRelationship } from './src/persona-default.mjs';
+import { ensurePersonaFile } from './src/persona-default.mjs';
 
 const IS_ELECTRON = !!process.versions.electron;
 const WIZARD_PORT = Number(process.env.QQBOT_WIZARD_PORT || 3071);
@@ -54,7 +54,8 @@ ensureDirs();
 
 // ---------- 首次运行：准备默认人格与颜文字表 ----------
 function seedDefaults(s) {
-  ensurePersonaFile(PATHS.persona, s.qq || {});
+  const qq = (s && s.qq) || {};
+  ensurePersonaFile(PATHS.persona, { name: qq.name, age: qq.age, city: qq.city, persona: qq.persona });
   if (!fs.existsSync(PATHS.emoticons)) {
     const src = path.join(APP, 'src', 'emoticons.json');
     if (fs.existsSync(src)) fs.copyFileSync(src, PATHS.emoticons);
@@ -346,19 +347,15 @@ function startWizard() {
           const j = await body();
           // 向导只负责 NapCat/QQ；API key、人格、主人号都搬到控制台里配，这里不强制校验
           const prev = loadSetup();
+          const qqPatch = { ...(j.qq || {}) };
+          delete qqPatch.relationship;
           const merged = {
             ...prev,
             ...j,
             api: (j.api && j.api.key) ? j.api : prev.api,
-            qq: { ...prev.qq, ...(j.qq || {}) },
+            qq: { ...prev.qq, ...qqPatch },
             napcat: { ...prev.napcat, ...(j.napcat || {}) },
           };
-          if (j.qq?.relationship !== undefined) {
-            const relationship = cleanRelationship(j.qq.relationship);
-            const result = setPersonaRelationship(PATHS.persona, relationship, merged.qq);
-            if (!result.ok) return json(400, result);
-            merged.qq.relationship = relationship;
-          }
           const s = saveSetup(merged);
           seedDefaults(s);
           return json(200, { ok: true, setup: s });
