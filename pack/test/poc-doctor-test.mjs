@@ -27,6 +27,12 @@ check('十项检查都在', () => {
   }
 });
 
+check('缺 Key 的修复去模型页，不把人送进 QQ 向导', () => {
+  const seg = ui.slice(ui.indexOf("add('api'"), ui.indexOf("add('data'"));
+  assert.ok(seg.includes('模型页'), '没指向模型页');
+  assert.ok(!seg.includes('向导'), '缺 Key 不该叫人去 QQ 向导');
+});
+
 check('没有 API Key 是硬伤，QQ 没连只是可选', () => {
   // api 这一项没有 key 时必须报 fail
   assert.ok(/add\('api', hasKey \? 'ok' : 'fail'/.test(ui), 'api 检查没把缺 key 当硬伤');

@@ -61,6 +61,34 @@ check('地址和模型默认收在「高级」里，做完能去聊天窗', () =
   assert.ok(/127\.0\.0\.1:3210/.test(ui), '打开聊天窗没有指向聊天端口');
 });
 
+check('第一次见面卡不再问关系/身份', () => {
+  const start = ui.indexOf("box.innerHTML = ''");
+  const end = ui.indexOf('document.body.appendChild(box)', start);
+  const card = ui.slice(start, end);
+  assert.ok(start > 0 && end > start, '找不到第一次见面的卡片');
+  assert.ok(!card.includes('关系/身份') && !card.includes('wzRelationship'), '卡片里还留着身份选择');
+  const save = ui.slice(ui.indexOf('async function wzSave'), ui.indexOf('loadState(); loadRecent();'));
+  assert.ok(!save.includes('relationship'), '保存时还在写身份');
+  assert.ok(ui.includes('关系/身份：朋友'), '人设页没有告诉人去人格提示词里写关系');
+});
+
+check('启动进控制台的第一次见面，QQ 向导不抢第一屏', () => {
+  const main = fs.readFileSync(path.join(SRC, '..', 'electron', 'main.cjs'), 'utf8');
+  const boot = main.slice(main.indexOf('async function boot'), main.indexOf("app.on('second-instance'"));
+  const gate = main.slice(main.indexOf('function needsFirstMeet'), main.indexOf('function showWindow'));
+  assert.ok(/function needsFirstMeet\(/.test(main));
+  assert.ok(/ownerUin/.test(gate), '第一次见面的判定没看主人号');
+  assert.ok(/const needFirstMeet = needsFirstMeet\(\)/.test(boot));
+  assert.ok(!/loadURL\(WIZARD\)/.test(boot), '启动流程还会打开 QQ 向导');
+  assert.ok(/win\.loadURL\(consoleUrl\(\)\)/.test(boot));
+  const launch = fs.readFileSync(path.join(SRC, '..', 'launch.mjs'), 'utf8');
+  const start = launch.slice(launch.indexOf('async function startAll'));
+  const stripped = start.replace(/if \(process\.env\.QQBOT_WIZARD_ONLY === '1'\) \{ await startWizard\(\); return; \}/, '');
+  assert.ok(!/startWizard\(/.test(stripped), '没显式要求时 startAll 仍会开向导');
+  const brain = fs.readFileSync(path.join(SRC, 'brain.mjs'), 'utf8');
+  assert.ok(!brain.includes('先在向导里填 API Key'), '缺 Key 的报错还在把人送进向导');
+});
+
 check('样式跟着控制台走（不能插到手机版那份样式里）', () => {
   const iCss = ui.indexOf('.wz-mask{');
   const iDeskNav = ui.indexOf('nav{width:212px;flex:0 0 212px;height:100vh;');

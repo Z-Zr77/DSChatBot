@@ -32,6 +32,35 @@ check('面板那份叫 saveBrainCfgBox 且读 br*', /async function saveBrainCfg
 }
 check('状态里带 napcatReady', /napcatReady:\s*ncReady/.test(src));
 check('没装内核时给安装引导', /function napcatGuide\(S\)/.test(src) && /NapCatQQ\/releases/.test(src));
+check('QQ 页有从零指南和协议开关', /从零接上 QQ/.test(src) && /id="qqProtocol"/.test(src) && /value="snowluma"/.test(src) && /value="napcat"/.test(src));
+check('没出码时不只有一句确认路径', !src.includes('确认路径') && /qqNoQrHelp/.test(src) && /主人号/.test(src) && /launcher\.bat/.test(src));
+{
+  const brain = src.slice(src.indexOf('id="gBrain"'), src.indexOf('id="gMedia"'));
+  const seq = ["providerOptions('brProvider'", 'id="brKey"', "customUrlBlock('brUrlAdv'", 'id="brUrl"', 'id="brModel"'];
+  let at = -1; let brainOk = src.includes('<summary>自定义接口地址</summary>');
+  for (const token of seq) {
+    const i = brain.indexOf(token);
+    if (i < 0 || i <= at) brainOk = false;
+    at = i;
+  }
+  check('大脑顺序：供应商 → Key → 自定义地址 → 模型', brainOk);
+  const media = src.slice(src.indexOf('id="gMedia"'), src.indexOf('id="gAuto"'));
+  const rows = [
+    ['data-p="tts.provider"', 'data-p="tts.key"', 'data-p="tts.baseUrl"', 'data-p="tts.model"'],
+    ['data-p="asr.provider"', 'data-p="asr.key"', 'data-p="asr.baseUrl"', 'data-p="asr.model"'],
+    ['data-p="draw.provider"', 'data-p="draw.key"', 'data-p="draw.baseUrl"', 'data-p="draw.model"'],
+    ["providerOptions('viProvider'", 'data-p="vision.key"', 'data-p="vision.baseUrl"', 'data-p="vision.model"'],
+  ];
+  for (const row of rows) {
+    let pos = -1; let ok = true;
+    for (const token of row) {
+      const i = media.indexOf(token);
+      if (i < 0 || i <= pos) ok = false;
+      pos = i;
+    }
+    check('模型页顺序 ' + row[0], ok);
+  }
+}
 
 let child = null;
 try {
@@ -75,6 +104,21 @@ try {
     check('身份保存接口写入并回读：' + relationship,
       result.ok && persona.includes('关系/身份：' + relationship) && setup.relationship === relationship);
   }
+
+  const snow = await fetch(`http://127.0.0.1:${PORT}/api/setup`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ protocol: 'snowluma', clientDir: 'D:/SnowLuma' }),
+  });
+  const snowSaved = await snow.json();
+  const snowRead = await (await fetch(`http://127.0.0.1:${PORT}/api/setup`)).json();
+  const snowFile = JSON.parse(fs.readFileSync(path.join(DATA, 'setup.json'), 'utf8'));
+  check('SnowLuma 选择和路径能记下', snowSaved.ok && snowRead.protocol === 'snowluma' && snowRead.snowlumaDir === 'D:/SnowLuma' && snowFile.qq.protocol === 'snowluma', JSON.stringify(snowRead));
+  const nap = await fetch(`http://127.0.0.1:${PORT}/api/setup`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ protocol: 'napcat', clientDir: 'D:/NapCat/shell' }),
+  });
+  const napRead = await (await fetch(`http://127.0.0.1:${PORT}/api/setup`)).json();
+  check('切回 NapCat 写 napcat.dir 且不丢 SnowLuma 路径', nap.ok && napRead.protocol === 'napcat' && napRead.napcatDir === 'D:/NapCat/shell' && napRead.snowlumaDir === 'D:/SnowLuma');
 
   const st = await (await fetch(`http://127.0.0.1:${PORT}/api/state`)).json();
   check('state 里有 napcatReady', typeof st.napcatReady === 'boolean', JSON.stringify(st.napcatReady));

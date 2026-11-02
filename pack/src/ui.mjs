@@ -675,10 +675,10 @@ let STATE = {};
 function napcatGuide(S){
   if (!S || S.napcatReady) return '';
   const dir = (S && S.napcatDir) ? String(S.napcatDir) : '';
-  return '<div class="hint">要用 QQ 聊，得先装 <b>QQ 内核（NapCat，开源免费）</b>：'
-    + '<a href="https://github.com/NapNeko/NapCatQQ/releases" target="_blank" rel="noopener">去下载</a>，装好后'
-    + '在这一页点「QQ / NapCat 向导」，把目录填成它所在的位置（里面有 launcher.bat 那一层）。托盘菜单里也有同一项。'
-    + (dir ? '（现在找的是 <code>' + dir + '</code>）' : '') + '</div>';
+  return '<div class="hint">还没有二维码，多半是还没装好登录 QQ 用的小软件。先装电脑版 QQ，再下载 <b>NapCat</b>（<a href="https://github.com/NapNeko/NapCatQQ/releases" target="_blank" rel="noopener">去下载</a>）并解压。'
+    + '解压后找到里面有 launcher.bat 的那一层文件夹，在控制台「QQ」页填上路径并保存，然后再点扫码。'
+    + (dir ? '（现在找的是 <code>' + dir + '</code>，打开这个文件夹看看有没有 launcher.bat。）' : '（还没填文件夹。）')
+    + '扫码用另一部手机上的小号；你自己的号填在「主人号」里，两个不要填成同一个。</div>';
 }
 function qrClosedCard(S){return '<div class="card"><div class="row" style="justify-content:space-between"><b>QQ 接入已关闭</b><button class="pri" onclick="qqStartScan(this)">启动扫码登录 QQ</button></div><div class="hint">聊天用 DSChat 就够，要用 QQ 时再点右边这个按钮，才会拉起内核并出码。</div>' + napcatGuide(S) + '</div>';}
 function paintQr_legacy(S){
@@ -1278,12 +1278,21 @@ const server = http.createServer(async (req, res) => {
       let qr = { exists: false, at: 0 };
       try { const s = fs.statSync(QR_FILE); qr = { exists: true, at: s.mtimeMs }; } catch {}
       let ncDir = NAPCAT_DIR;
-      try { const s3 = loadSetup(); if (s3.napcat && s3.napcat.dir) ncDir = String(s3.napcat.dir); } catch {}
+      let qqProtocol = 'napcat';
+      let snowlumaDir = '';
+      try {
+        const s3 = loadSetup();
+        if (s3.napcat && s3.napcat.dir) ncDir = String(s3.napcat.dir);
+        if (s3.qq && s3.qq.protocol === 'snowluma') qqProtocol = 'snowluma';
+        snowlumaDir = String((s3.snowluma && s3.snowluma.dir) || '');
+      } catch {}
       const ncReady = (() => { try { return fs.existsSync(path.join(ncDir, 'launcher.bat')); } catch { return false; } })();
       return send(res, 200, {
         qqEnabled: QQE,
         napcatDir: ncDir,
         napcatReady: ncReady,
+        qqProtocol,
+        snowlumaDir,
         bridge: a, login, people, minds, qqLive,
         names: readJSON(NAMES, {}),
         ownerUin: ownerUin(),
@@ -1821,6 +1830,9 @@ const server = http.createServer(async (req, res) => {
           uin: String(s.qq?.uin || ''),
           name: String(s.qq?.name || ''),
           relationship: relationshipOf(readText(PERSONA)) || String(s.qq?.relationship || '女友'),
+          protocol: s.qq?.protocol === 'snowluma' ? 'snowluma' : 'napcat',
+          napcatDir: String(s.napcat?.dir || ''),
+          snowlumaDir: String(s.snowluma?.dir || ''),
           dataDir: PATHS.data,
           locFile: PATHS.locFile || '',
           keySet: !!(s.api && s.api.key),
@@ -1828,6 +1840,16 @@ const server = http.createServer(async (req, res) => {
       }
       const b = await body(req);
       const patch = { qq: {} };
+      // 协议端选择只记在 setup 里。SnowLuma 的拉起、找目录、出码还没接（见 qq 页 TODO）。
+      if (b.protocol !== undefined) {
+        patch.qq.protocol = String(b.protocol) === 'snowluma' ? 'snowluma' : 'napcat';
+      }
+      if (b.clientDir !== undefined) {
+        const dir = String(b.clientDir || '').trim().slice(0, 400);
+        const protocol = patch.qq.protocol || (s.qq && s.qq.protocol === 'snowluma' ? 'snowluma' : 'napcat');
+        if (protocol === 'snowluma') patch.snowluma = { ...(s.snowluma || {}), dir };
+        else patch.napcat = { dir };
+      }
       if (b.ownerUin !== undefined) {
         const owner = String(b.ownerUin || '').replace(/\D/g, '').slice(0, 12);
         patch.qq.ownerUin = owner; patch.qq.master = owner;
@@ -2410,6 +2432,23 @@ __CONSOLE_STYLE__
 </section>
 
 <section id="qq">
+  <div class="card" id="qqGuide">
+    <div class="toolbar"><b>从零接上 QQ</b></div>
+    <p class="dim" style="margin:6px 0 10px">不接 QQ 也能在这台电脑上跟她聊。要接的话，先选一种协议端（负责登录 QQ 的小软件），再按下面的步骤做。两种不要同时开。</p>
+    <div class="row" style="gap:10px;margin-bottom:8px">
+      <span class="dim">协议端</span>
+      <select id="qqProtocol" aria-label="协议端" onchange="paintQqGuide()" style="max-width:280px">
+        <option value="napcat">NapCat</option>
+        <option value="snowluma">SnowLuma</option>
+      </select>
+    </div>
+    <div id="qqGuideBody" class="dim" style="line-height:1.75"></div>
+    <div class="row" style="gap:10px;margin-top:10px">
+      <input id="qqClientDir" placeholder="协议端文件夹，里面要有 launcher.bat" style="flex:1">
+      <button class="btn" onclick="saveQqClient()">保存协议和路径</button>
+    </div>
+    <p class="dim" id="qqClientHint" style="margin:8px 0 0"></p>
+  </div>
   <div class="card scan-entry" id="scanEntry">
     <button class="btn scan-button" onclick="showQqScan()">扫码登录 QQ</button>
     <button class="ghost" onclick="openQqWizard()">QQ / NapCat 向导</button>
@@ -2421,7 +2460,7 @@ __CONSOLE_STYLE__
   <div class="card" style="margin-top:14px">
     <div class="row" style="justify-content:space-between"><b>你的 QQ（主人号）</b>
       <button class="btn" onclick="saveOwner()">保存</button></div>
-    <div class="dim" style="margin:6px 0 8px">只有这个号能让她动电脑、看她的记忆。改错了她会认不出你。</div>
+    <div class="dim" style="margin:6px 0 8px">填你自己平时用的号，不是上面扫码登录的那个小号。只有这个号能让她动电脑、看她的记忆。两个号不要填成同一个。</div>
     <div class="row" style="gap:10px">
       <input id="ownerInput" inputmode="numeric" placeholder="例如 123456789" style="max-width:260px">
       <span class="dim" id="ownerHint"></span>
@@ -2460,7 +2499,7 @@ __CONSOLE_STYLE__
   </div>
 <div class="card"><div class="row" style="justify-content:space-between"><b>人格提示词</b>
     <div class="row"><span class="dim" id="pState"></span><button class="btn" onclick="savePersona()">保存</button></div></div>
-    <p class="dim">改完保存，下一条消息就生效（不用重启）。</p>
+    <p class="dim">改完保存，下一条消息就生效（不用重启）。相处关系也写在这里，单独一行「关系/身份：朋友」。</p>
     <textarea id="personaText" style="height:320px"></textarea></div>
 </div>
 <div class="pane" id="stickers">
@@ -2570,7 +2609,7 @@ const PG = {
 };
 const PAGE_LOAD = {
   overview: () => { loadState(); loadRecent(); },
-  qq: () => { loadState(); },
+  qq: () => { loadState(); loadQqGuide(); },
   log: () => { loadLog(); loadRecent(); },
   her: () => { loadPersona(); loadSelf(); loadStickers(); },
   memory: () => loadMem(),
@@ -3009,6 +3048,74 @@ function paintOwnerField(){
   const hint = $('#ownerHint');
   if (hint) hint.textContent = S && S.ownerUin ? '现在是她认的那个号' : '还没设：她不知道谁是主人';
 }
+let QQ_DIRS = { napcat: '', snowluma: '' };
+function qqGuideHtml(protocol) {
+  if (protocol === 'snowluma') {
+    return '<ol style="margin:8px 0 0 1.2em;padding:0">'
+      + '<li><b>先装电脑版 QQ。</b>到 <a href="https://im.qq.com/pcqq" target="_blank" rel="noopener">QQ 官网</a> 下载安装。建议另开一个小号给她登录，不要用你平时聊天的大号。</li>'
+      + '<li><b>下载 SnowLuma 并解压。</b>到 <a href="https://github.com/SnowLuma/SnowLuma/releases" target="_blank" rel="noopener">SnowLuma 的发布页</a> 下完整包（文件名里带 win-x64 或 linux-x64，不要下带 lite 的，除非电脑里已经有 Node.js 22 以上）。解压到一个找得到的地方。</li>'
+      + '<li><b>把文件夹指过来。</b>打开解压出来的文件夹，Windows 里要能看到 launcher.bat，Linux 是 launcher.sh。把这一层的路径填到下面，点「保存协议和路径」。不要填到上一层，也不要填进里面的子文件夹。</li>'
+      + '<li><b>用它自己的页面登录。</b>双击 launcher 启动。浏览器打开 <code>http://127.0.0.1:5099</code>，密码在启动时那个黑窗口里。按网页上的提示把 QQ 接上并扫码。登录码在这个网页里，不一定出现在本页。</li>'
+      + '<li><b>填你自己的 QQ 号。</b>扫码的是她用的小号。往下翻到「你的 QQ（主人号）」，填你自己的号。两个号不要相同。</li>'
+      + '</ol>'
+      + '<p style="margin:8px 0 0">一直没有码：先确认 launcher 已经在跑、5099 那个网页打得开，扫的是网页上的码。这一页还不会替你启动 SnowLuma，也不会自动判断文件夹对不对。</p>';
+  }
+  return '<ol style="margin:8px 0 0 1.2em;padding:0">'
+    + '<li><b>先装电脑版 QQ。</b>到 <a href="https://im.qq.com/pcqq" target="_blank" rel="noopener">QQ 官网</a> 下载安装。建议另开一个小号给她登录，不要用你平时聊天的大号。</li>'
+    + '<li><b>下载 NapCat 并解压。</b>NapCat 是免费的小软件，负责帮这里连上 QQ。到 <a href="https://github.com/NapNeko/NapCatQQ/releases" target="_blank" rel="noopener">NapCat 的发布页</a> 下载带 Shell 的压缩包，解压到一个找得到的地方。</li>'
+    + '<li><b>把文件夹指过来。</b>打开解压出来的文件夹，确认这一层里有 launcher.bat（Windows）。把这一层的路径填到下面，点「保存协议和路径」。不要填到上一层，也不要填进 cache。</li>'
+    + '<li><b>出码，用另一部手机扫。</b>点这一页的「扫码登录 QQ」。码出来后，用另一部手机上的 QQ（切到小号）来扫，并在手机上点「确认登录」。同一部手机扫不了自己屏幕上的码。</li>'
+    + '<li><b>填你自己的 QQ 号。</b>扫码的是她用的小号。往下翻到「你的 QQ（主人号）」，填你自己的号。两个号不要相同。</li>'
+    + '</ol>'
+    + '<p style="margin:8px 0 0">一直没有码：多半是第 3 步的文件夹不对，或者 NapCat 还没跑起来。打开那个文件夹看有没有 launcher.bat；没有就退回上一层，或重新解压。改完路径要点保存，再点「扫码登录 QQ」，或点二维码上的「立即换一张」。QQ 电脑版也要先装好。还不行就点「QQ / NapCat 向导」，它会检查 QQ 和这个文件夹。</p>';
+}
+function paintQqGuide() {
+  const sel = document.getElementById('qqProtocol');
+  const protocol = sel && sel.value === 'snowluma' ? 'snowluma' : 'napcat';
+  const dir = document.getElementById('qqClientDir');
+  if (dir && document.activeElement !== dir) dir.value = QQ_DIRS[protocol] || '';
+  if (dir) dir.placeholder = protocol === 'snowluma' ? 'SnowLuma 文件夹，里面要有 launcher.bat 或 launcher.sh' : 'NapCat 文件夹，里面要有 launcher.bat';
+  const body = document.getElementById('qqGuideBody');
+  if (body) body.innerHTML = qqGuideHtml(protocol);
+  const hint = document.getElementById('qqClientHint');
+  if (!hint) return;
+  hint.textContent = protocol === 'snowluma'
+    ? '选择会记住。自动启动 SnowLuma、检查这个文件夹、以及用它在本页出码，还没接上；请先自己运行 launcher，到 5099 页面登录。'
+    : '保存后，本页会到这个文件夹里找 launcher.bat。找不到就不会出二维码。';
+}
+async function loadQqGuide() {
+  try {
+    const s = await api('/api/setup');
+    QQ_DIRS.napcat = (s && s.napcatDir) || '';
+    QQ_DIRS.snowluma = (s && s.snowlumaDir) || '';
+    const sel = document.getElementById('qqProtocol');
+    if (sel) sel.value = s && s.protocol === 'snowluma' ? 'snowluma' : 'napcat';
+    paintQqGuide();
+  } catch (e) {}
+}
+async function saveQqClient() {
+  const sel = document.getElementById('qqProtocol');
+  const protocol = sel && sel.value === 'snowluma' ? 'snowluma' : 'napcat';
+  const clientDir = String((document.getElementById('qqClientDir') || {}).value || '').trim();
+  // TODO(backend): SnowLuma 通道、进程拉起和路径探测不在这里做。只把 qq.protocol 与 snowluma.dir / napcat.dir 写进 setup，给协议端后端读。
+  const r = await api('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ protocol: protocol, clientDir: clientDir }) });
+  if (!r || r.ok === false) return toast((r && r.err) || '保存失败', false);
+  QQ_DIRS[protocol] = clientDir;
+  toast(protocol === 'snowluma' ? '已记下 SnowLuma 的文件夹' : '已记下 NapCat 的文件夹', true);
+  paintQqGuide();
+  try { await loadState(); } catch (e) {}
+}
+function qqNoQrHelp(S) {
+  const protocol = (S && S.qqProtocol === 'snowluma') ? 'snowluma' : 'napcat';
+  const dir = protocol === 'snowluma' ? String((S && S.snowlumaDir) || '') : String((S && S.napcatDir) || '');
+  const where = dir ? ('现在填的文件夹是 ' + esc(dir) + '。') : '这一栏还是空的。';
+  if (protocol === 'snowluma') {
+    return '<div>还没有码。SnowLuma 的登录码在它自己的网页 <b>http://127.0.0.1:5099</b>，不一定出现在这里。'
+      + where + '请确认已经解压完整包、双击了 launcher，并且网页打得开。本页还不会自动检查这个文件夹。</div>';
+  }
+  return '<div>还没有二维码。按顺序检查：电脑版 QQ 装了没有；NapCat 解压了没有；下面的路径是不是「能看见 launcher.bat」的那一层。'
+    + where + '改完要点「保存协议和路径」，再点「扫码登录 QQ」或右上「立即换一张」。同一部手机扫不了自己屏幕上的码，要用另一部手机的小号扫。你自己的号填在再下面的「主人号」。</div>';
+}
 async function saveOwner(){
   const v = String(($('#ownerInput') || {}).value || '').trim();
   if (!/^[0-9]{5,12}$/.test(v)) return toast('QQ 号要填数字（5–12 位）', false);
@@ -3103,11 +3210,10 @@ function paintQr(S, l){
     if (slot.dataset.at) { img.removeAttribute('src'); slot.dataset.at = ''; }
     ph.style.display = 'block';
     if (AGE >= 0) {
-      ph.textContent = '这张码是 ' + fmtAge(AGE) + '前生成的，早就失效了，扫也没用 —— 点右上「立即换一张」重新出码。';
-    } else if (typeof napcatGuide === 'function' && S && S.napcatReady === false) {
-      ph.innerHTML = napcatGuide(S);
+      ph.innerHTML = '这张码是 ' + fmtAge(AGE) + '前生成的，早就失效了，扫也没用。点右上「立即换一张」重新出码。'
+        + '<div style="margin-top:8px">' + qqNoQrHelp(S) + '</div>';
     } else {
-      ph.textContent = '内核还没出码。点右上「立即换一张」，或打开「QQ / NapCat 向导」确认路径。';
+      ph.innerHTML = qqNoQrHelp(S);
     }
   }
 }
@@ -3543,6 +3649,81 @@ async function saveInterests(){
   alert('已保存');
 }
 
+const BRAIN_PRESETS = [
+  { id: 'deepseek', label: 'DeepSeek', base: 'https://api.deepseek.com/v1', models: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-flash'] },
+  { id: 'openai', label: 'OpenAI', base: 'https://api.openai.com/v1', models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1'] },
+  { id: 'moonshot', label: 'Moonshot（Kimi）', base: 'https://api.moonshot.cn/v1', models: ['moonshot-v1-auto', 'moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'] },
+  { id: 'dashscope', label: '阿里云百炼（通义）', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models: ['qwen-plus', 'qwen-turbo', 'qwen-max', 'qwen-flash'] },
+  { id: 'siliconflow', label: '硅基流动', base: 'https://api.siliconflow.cn/v1', models: ['deepseek-ai/DeepSeek-V3', 'Qwen/Qwen2.5-72B-Instruct'] },
+  { id: 'openrouter', label: 'OpenRouter', base: 'https://openrouter.ai/api/v1', models: ['openai/gpt-4o-mini', 'deepseek/deepseek-chat'] },
+  { id: 'groq', label: 'Groq', base: 'https://api.groq.com/openai/v1', models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'] },
+  { id: 'custom', label: '自定义（OpenAI 兼容）', base: '', models: [] },
+];
+const VISION_PRESETS = [
+  { id: 'brain', label: '跟随大脑', base: '', models: [] },
+  { id: 'dashscope', label: '阿里云百炼', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models: ['qwen3-vl-plus', 'qwen-vl-max', 'qwen-vl-plus'] },
+  { id: 'openai', label: 'OpenAI', base: 'https://api.openai.com/v1', models: ['gpt-4o-mini', 'gpt-4o'] },
+  { id: 'volc', label: '火山方舟', base: 'https://ark.cn-beijing.volces.com/api/v3', models: ['doubao-1-5-vision-pro-32k-250115'] },
+  { id: 'custom', label: '自定义（OpenAI 兼容）', base: '', models: [] },
+];
+function normBase(u) { return String(u || '').trim().replace(/\/+$/, '').toLowerCase(); }
+function presetById(list, id) {
+  for (let i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+  return list[list.length - 1];
+}
+function presetFor(list, base, emptyId) {
+  const b = normBase(base);
+  if (!b) {
+    for (let i = 0; i < list.length; i++) if (list[i].id === (emptyId || list[0].id)) return list[i];
+    return list[0];
+  }
+  for (let i = 0; i < list.length; i++) if (list[i].base && normBase(list[i].base) === b) return list[i];
+  for (let i = 0; i < list.length; i++) if (list[i].id === 'custom') return list[i];
+  return list[list.length - 1];
+}
+function escAttr(s) { return esc(String(s == null ? '' : s)).replace(/"/g, '&quot;'); }
+function fillPresetList(id, models) {
+  const dl = document.getElementById(id);
+  if (!dl) return;
+  dl.innerHTML = (models || []).map(function (m) { return '<option value="' + escAttr(m) + '"></option>'; }).join('');
+}
+function providerOptions(selectId, list, currentId, onchangeName) {
+  const opts = list.map(function (p) {
+    return '<option value="' + p.id + '"' + (p.id === currentId ? ' selected' : '') + '>' + esc(p.label) + '</option>';
+  }).join('');
+  return '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">供应商</span><select id="' + selectId + '" style="max-width:320px" onchange="' + onchangeName + '()">' + opts + '</select></div>';
+}
+function customUrlBlock(advId, inner, open) {
+  return '<details class="wz-adv" id="' + advId + '"' + (open ? ' open' : '') + '><summary>自定义接口地址</summary>' + inner + '</details>';
+}
+function applyListedProvider(selectId, urlSel, advId, listId, modelSel, list) {
+  const sel = document.getElementById(selectId);
+  const url = typeof urlSel === 'string' ? document.querySelector(urlSel) : urlSel;
+  const adv = document.getElementById(advId);
+  const model = typeof modelSel === 'string' ? document.querySelector(modelSel) : modelSel;
+  const p = presetById(list, sel && sel.value);
+  if (p.id === 'custom') { if (adv) adv.open = true; }
+  else {
+    if (url) url.value = p.base;
+    if (adv) adv.open = false;
+  }
+  fillPresetList(listId, p.models);
+  if (model && p.models.length && !String(model.value || '').trim()) model.value = p.models[0];
+}
+function applyBrainProvider() {
+  applyListedProvider('brProvider', document.getElementById('brUrl'), 'brUrlAdv', 'dlBrain', document.getElementById('brModel'), BRAIN_PRESETS);
+}
+function applyVisionProvider() {
+  applyListedProvider('viProvider', '[data-p="vision.baseUrl"]', 'viUrlAdv', 'dlVision', '[data-p="vision.model"]', VISION_PRESETS);
+}
+function fallbackModels(kind) {
+  if (kind === 'chat') return (presetById(BRAIN_PRESETS, (document.getElementById('brProvider') || {}).value) || {}).models || [];
+  if (kind === 'vision') return (presetById(VISION_PRESETS, (document.getElementById('viProvider') || {}).value) || {}).models || [];
+  if (kind === 'tts') return ['cosyvoice-v2', 'cosyvoice-v3-plus', 'cosyvoice-v1'];
+  if (kind === 'asr') return ['whisper-1', 'gpt-4o-transcribe'];
+  if (kind === 'draw') return ['doubao-seedream-4-0-20260415', 'wanx2.1-t2i-turbo', 'wan2.2-t2i-flash'];
+  return [];
+}
 async function loadCfg(){
   const c = await api('/api/config');
   const br = await api('/api/brain');
@@ -3567,35 +3748,40 @@ async function loadCfg(){
           + row('看图（她看照片）', !!(dInfo && dInfo.hasRef) || !!((c.vision && c.vision.key)) || !!(vi && (vi.aliok || vi.brainOk)), (dInfo && dInfo.refModel) || '能看', 'gMedia')
           + '</div>';
       })()
-    + '<details class="cfgrp" id="gBrain" open><summary>大脑（API）<span class="dim">说话靠这个；换模型供应商才需要重启</span></summary>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">接口地址</span><input id="brUrl" value="' + (br.baseUrl || '') + '" style="flex:1"></div>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">API Key</span><input id="brKey" type="password" placeholder="' + (br.keySet ? '已保存 ' + br.keyMask + '（留空不改）' : 'sk-…') + '" style="flex:1"></div>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">模型</span><input id="brModel" value="' + (br.model || '') + '" style="flex:1"><button class="ghost" data-kind="chat" onclick="pullModels(this.dataset.kind)">拉取</button></div>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim"></span><button class="ghost" onclick="testBrain()">测试连接</button><button class="btn" onclick="saveBrainPanel(this)">保存 API</button><span class="dim" id="brMsg"></span></div>'
-    + '<p class="dim" style="margin:0 0 6px 210px">改完 API 后要点「重启桥接」才用新配置。</p>'
-    + '</details>'
+    + (function () {
+        const cur = presetFor(BRAIN_PRESETS, br.baseUrl || '');
+        const shown = String(br.baseUrl || '').trim() || cur.base || BRAIN_PRESETS[0].base;
+        return '<details class="cfgrp" id="gBrain" open><summary>大脑（API）<span class="dim">说话靠这个；换供应商后要点重启桥接</span></summary>'
+          + providerOptions('brProvider', BRAIN_PRESETS, cur.id, 'applyBrainProvider')
+          + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">API Key</span><input id="brKey" type="password" placeholder="' + (br.keySet ? '已保存 ' + br.keyMask + '（留空不改）' : 'sk-…') + '" style="flex:1"></div>'
+          + customUrlBlock('brUrlAdv', '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">接口地址</span><input id="brUrl" value="' + escAttr(shown) + '" style="flex:1" placeholder="https://api.example.com/v1"></div><p class="dim" style="margin:0 0 6px 210px">选上面的供应商会填官方地址。要走自己的网关，展开这里改。保存的仍是地址、模型和 Key。</p>', cur.id === 'custom')
+          + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">模型</span><input id="brModel" list="dlBrain" value="' + escAttr(br.model || '') + '" style="flex:1"><button class="ghost" data-kind="chat" onclick="pullModels(this.dataset.kind)">拉取目录</button><datalist id="dlBrain"></datalist></div>'
+          + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim"></span><button class="ghost" onclick="testBrain()">测试连接</button><button class="btn" onclick="saveBrainPanel(this)">保存 API</button><span class="dim" id="brMsg"></span></div>'
+          + '<p class="dim" style="margin:0 0 6px 210px">改完 API 后要点「重启桥接」才用新配置。拉不到目录时用这份预设，也可以手填模型名。</p>'
+          + '</details>';
+      })()
     + '<details class="cfgrp" id="gMedia"><summary>语音与画图<span class="dim">她不说话、画得不像，或者想换服务商时才动</span></summary>'
     + '<h4 class="sect">语音（TTS）</h4>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">供应商</span><select data-p="tts.provider" style="width:240px"><option value="aliyun"' + ((c.tts&&c.tts.provider==='aliyun')?' selected':'') + '>阿里云 CosyVoice</option><option value="openai"' + ((c.tts&&c.tts.provider==='openai')?' selected':'') + '>OpenAI 兼容 /audio/speech</option><option value="edge"' + ((c.tts&&c.tts.provider==='edge')?' selected':'') + '>Edge-TTS（免费兜底）</option></select></div>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">接口地址</span><input data-p="tts.baseUrl" value="' + ((c.tts && c.tts.baseUrl) || '') + '" style="flex:1" placeholder="留空=阿里云/OpenAI 官方地址；第三方网关填到 /v1 结尾"></div>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">模型</span><input data-p="tts.model" list="dlTts" value="' + ((c.tts&&c.tts.model)||'cosyvoice-v2') + '" style="width:260px"><button class="ghost" onclick="pullModels(\'tts\')">拉取</button><span class="dim" id="tmMsg">可下拉选，也可手填</span><datalist id="dlTts"></datalist></div>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">API Key</span><input data-p="tts.key" type="password" placeholder="' + (vi.keySet ? '已保存 ' + vi.keyMask + '（留空不改）' : 'sk-…（阿里云百炼）') + '" style="flex:1"></div>'
+    + customUrlBlock('ttsUrlAdv', '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">接口地址</span><input data-p="tts.baseUrl" value="' + escAttr((c.tts && c.tts.baseUrl) || '') + '" style="flex:1" placeholder="留空=官方地址；第三方网关填到 /v1 结尾"></div>', !!((c.tts && c.tts.baseUrl)))
+    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">模型</span><input data-p="tts.model" list="dlTts" value="' + escAttr((c.tts&&c.tts.model)||'cosyvoice-v2') + '" style="width:260px"><button class="ghost" onclick="pullModels(\'tts\')">拉取目录</button><span class="dim" id="tmMsg">可下拉选，也可手填</span><datalist id="dlTts"></datalist></div>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">音色包</span><select id="voiceSel" style="width:260px"></select>'
     + '<button class="ghost" onclick="previewVoice()">试听</button><span class="dim" id="vMsg"></span></div>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">新增音色包</span><input id="vNewName" placeholder="名称，如 甜妹" style="width:150px"><input id="vNewId" placeholder="音色 ID，如 longxin_v2" style="width:200px">'
     + '<button class="ghost" onclick="addVoice()">添加</button><button class="ghost danger" onclick="delVoice()">删除选中</button></div>'
     + '<p class="dim" style="margin:0 0 6px 210px">音色包存在 data\\voices.json，内置的不让删；试听会用当前选中的音色现场合成一句。</p>'
     + '<h4 class="sect">语音识别（ASR）</h4>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">方式</span><select data-p="asr.provider" style="width:280px"><option value="local"' + (((c.asr && c.asr.provider) || 'local') === 'local' ? ' selected' : '') + '>本机模型（faster-whisper，免费但吃内存）</option><option value="openai"' + ((c.asr && c.asr.provider) === 'openai' ? ' selected' : '') + '>OpenAI 兼容接口（/audio/transcriptions）</option></select></div>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">接口地址</span><input data-p="asr.baseUrl" value="' + ((c.asr && c.asr.baseUrl) || '') + '" style="flex:1" placeholder="选 openai 时必填，如 https://api.openai.com/v1"></div>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">模型</span><input data-p="asr.model" list="dlAsr" value="' + ((c.asr && c.asr.model) || '') + '" style="width:260px" placeholder="留空 = whisper-1"><button class="ghost" onclick="pullModels(\'asr\')">拉取</button><span class="dim" id="amMsg">可下拉选，也可手填</span><datalist id="dlAsr"></datalist></div>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">API Key</span><input data-p="asr.key" type="password" placeholder="已保存或留空" style="flex:1"></div>'
+    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">供应商</span><select data-p="asr.provider" style="width:280px"><option value="local"' + (((c.asr && c.asr.provider) || 'local') === 'local' ? ' selected' : '') + '>本机模型（faster-whisper，免费但吃内存）</option><option value="openai"' + ((c.asr && c.asr.provider) === 'openai' ? ' selected' : '') + '>OpenAI 兼容接口（/audio/transcriptions）</option></select></div>'
+    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">API Key</span><input data-p="asr.key" type="password" placeholder="本机模型可留空；云端接口再填" style="flex:1"></div>'
+    + customUrlBlock('asrUrlAdv', '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">接口地址</span><input data-p="asr.baseUrl" value="' + escAttr((c.asr && c.asr.baseUrl) || '') + '" style="flex:1" placeholder="选 OpenAI 兼容时再填，如 https://api.openai.com/v1"></div>', !!((c.asr && c.asr.baseUrl)))
+    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">模型</span><input data-p="asr.model" list="dlAsr" value="' + escAttr((c.asr && c.asr.model) || '') + '" style="width:260px" placeholder="留空 = whisper-1"><button class="ghost" onclick="pullModels(\'asr\')">拉取目录</button><span class="dim" id="amMsg">可下拉选，也可手填</span><datalist id="dlAsr"></datalist></div>'
     + '<h4 class="sect">画图</h4>'
     + cb('允许她自己画图', 'draw.enabled', !(c.draw && c.draw.enabled === false), '聊天时她会用 [[画:…]] 亲手画一张发给你')
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">协议</span><select data-p="draw.provider" style="width:320px"><option value="auto"' + (((c.draw && c.draw.provider) || 'auto') === 'auto' ? ' selected' : '') + '>自动（看地址判断）</option><option value="ark"' + ((c.draw && c.draw.provider) === 'ark' ? ' selected' : '') + '>火山方舟 Seedream（支持参考图）</option><option value="dashscope"' + ((c.draw && c.draw.provider) === 'dashscope' ? ' selected' : '') + '>阿里云百炼·万相（异步，纯文字）</option><option value="openai"' + ((c.draw && c.draw.provider) === 'openai' ? ' selected' : '') + '>OpenAI 兼容 /images/generations</option></select></div>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">接口地址</span><input data-p="draw.baseUrl" value="' + ((c.draw && c.draw.baseUrl) || '') + '" style="flex:1" placeholder="留空=各后端默认：火山 https://ark.cn-beijing.volces.com/api/v3 / 阿里云 https://dashscope.aliyuncs.com"></div>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">模型</span><input data-p="draw.model" list="dlDraw" value="' + ((c.draw && c.draw.model) || '') + '" style="width:300px" placeholder="留空用默认"><button class="ghost" onclick="pullModels(\'draw\')">拉取</button><span class="dim" id="dmMsg">可下拉选，也可手填 / ep- 接入点</span><datalist id="dlDraw"></datalist></div>'
+    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">供应商</span><select data-p="draw.provider" style="width:320px"><option value="auto"' + (((c.draw && c.draw.provider) || 'auto') === 'auto' ? ' selected' : '') + '>自动（看地址判断）</option><option value="ark"' + ((c.draw && c.draw.provider) === 'ark' ? ' selected' : '') + '>火山方舟 Seedream（支持参考图）</option><option value="dashscope"' + ((c.draw && c.draw.provider) === 'dashscope' ? ' selected' : '') + '>阿里云百炼·万相（异步，纯文字）</option><option value="openai"' + ((c.draw && c.draw.provider) === 'openai' ? ' selected' : '') + '>OpenAI 兼容 /images/generations</option></select></div>'
     + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">API Key</span><input data-p="draw.key" type="password" placeholder="' + (dInfo.keySet ? ('已保存 ' + (dInfo.keyMask || '') + '（留空不改）') : '留空 = 用 data\\aliyun.key 或 data\\ark.key') + '" style="flex:1"></div>'
+    + customUrlBlock('drawUrlAdv', '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">接口地址</span><input data-p="draw.baseUrl" value="' + escAttr((c.draw && c.draw.baseUrl) || '') + '" style="flex:1" placeholder="留空=各家默认：火山 https://ark.cn-beijing.volces.com/api/v3 / 阿里云 https://dashscope.aliyuncs.com"></div>', !!((c.draw && c.draw.baseUrl)))
+    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">模型</span><input data-p="draw.model" list="dlDraw" value="' + escAttr((c.draw && c.draw.model) || '') + '" style="width:300px" placeholder="留空用默认"><button class="ghost" onclick="pullModels(\'draw\')">拉取目录</button><span class="dim" id="dmMsg">可下拉选，也可手填 / ep- 接入点</span><datalist id="dlDraw"></datalist></div>'
     + '<div class="row" style="margin:-2px 0 6px 210px"><span id="dKey" class="dim">检查中…</span></div>'
     + cb('画她时带上参考图', 'draw.ref', !(c.draw && c.draw.ref === false), '火山 Seedream 会按「她的样子」锁人物；阿里云不支持')
     + cb('OpenAI 网关也带图', 'draw.sendRef', !!(c.draw && c.draw.sendRef), '多数网关不支持，会报错，默认关')
@@ -3607,9 +3793,14 @@ async function loadCfg(){
     + '<div id="dOut"></div>'
     + '<h4 class="sect">看图</h4>'
     + '<p class="dim" style="margin:0 0 6px 210px" id="vInfo">检查中…</p>'
-    + '<div id="visionFields"><div class="row" style="margin:6px 0"><span style="width:210px" class="dim">接口地址</span><input data-p="vision.baseUrl" value="' + ((c.vision && c.vision.baseUrl) || '') + '" style="flex:1" placeholder="留空 = 用大脑的地址"></div>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">模型</span><input data-p="vision.model" list="dlVision" value="' + ((c.vision && c.vision.model) || '') + '" style="width:260px" placeholder="留空 = 用大脑的模型"><button class="ghost" onclick="pullModels(\'vision\')">拉取</button><span class="dim" id="vmMsg">可下拉选，也可手填</span><datalist id="dlVision"></datalist></div>'
-    + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">API Key</span><input data-p="vision.key" type="password" placeholder="留空 = 用大脑的 key" style="flex:1"></div>'
+    + '<div id="visionFields">'
+    + (function () {
+        const cur = presetFor(VISION_PRESETS, (c.vision && c.vision.baseUrl) || '', 'brain');
+        return providerOptions('viProvider', VISION_PRESETS, cur.id, 'applyVisionProvider')
+          + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">API Key</span><input data-p="vision.key" type="password" placeholder="留空 = 用大脑的 key" style="flex:1"></div>'
+          + customUrlBlock('viUrlAdv', '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">接口地址</span><input data-p="vision.baseUrl" value="' + escAttr((c.vision && c.vision.baseUrl) || '') + '" style="flex:1" placeholder="留空 = 用大脑的地址"></div>', cur.id === 'custom')
+          + '<div class="row" style="margin:6px 0"><span style="width:210px" class="dim">模型</span><input data-p="vision.model" list="dlVision" value="' + escAttr((c.vision && c.vision.model) || '') + '" style="width:260px" placeholder="留空 = 用大脑的模型"><button class="ghost" onclick="pullModels(\'vision\')">拉取目录</button><span class="dim" id="vmMsg">可下拉选，也可手填</span><datalist id="dlVision"></datalist></div>';
+      })()
     + '</div>'
     + '</details>'
     + '<details class="cfgrp" id="gAuto"><summary>主动性<span class="dim">她会不会主动找你、会不会自己上网看东西</span></summary>'
@@ -3630,6 +3821,8 @@ async function loadCfg(){
     + tim('最晚', 'browse.toTime', c.browse.toTime)
     + '</details>'
     + '<p class="dim" style="margin:16px 0 0">界面配色、圆角、字体 → <a href="#theme" style="color:#7fb2ff;opacity:.55">控制台主题（一般用不上）</a></p>';
+  fillPresetList('dlBrain', presetFor(BRAIN_PRESETS, br.baseUrl || '').models);
+  fillPresetList('dlVision', presetFor(VISION_PRESETS, (c.vision && c.vision.baseUrl) || '', 'brain').models);
   await loadVoiceOptions(((c.tts && c.tts.voiceId) || c.voice || ''));
   paintKeyStatus();
   paintVision();
@@ -3737,7 +3930,7 @@ async function openData(){
 
 // 从服务端拉模型候选，填进 datalist（下拉可选，也能手填）
 async function pullModels(kind){
-  const cfg = { chat: { msg: '#brMsg', dl: '', model: 'brModel', base: 'brUrl', key: 'brKey' },
+  const cfg = { chat: { msg: '#brMsg', dl: '#dlBrain', model: 'brModel', base: 'brUrl', key: 'brKey' },
                 draw: { msg: '#dmMsg', dl: '#dlDraw', model: 'draw.model', base: 'draw.baseUrl', key: 'draw.key' },
                 vision: { msg: '#vmMsg', dl: '#dlVision', model: 'vision.model', base: 'vision.baseUrl', key: 'vision.key' },
                 asr: { msg: '#amMsg', dl: '#dlAsr', model: 'asr.model', base: 'asr.baseUrl', key: 'asr.key' },
@@ -3750,9 +3943,14 @@ async function pullModels(kind){
   try {
     const body = { kind, baseUrl: cfg.base ? val(cfg.base) : '', key: cfg.key ? val(cfg.key) : '' };
     const r = await api('/api/models/probe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const ids = r.ids || [];
-    if (dl && dl.tagName === 'DATALIST') dl.innerHTML = ids.map(id => '<option value="' + id + '"></option>').join('');
-    if (box) box.textContent = ids.length ? ('拉到 ' + ids.length + ' 个，点输入框下拉选' + (r.from ? '（' + r.from + '）' : '')) : ('没拉到：' + (r.err || '空'));
+    let ids = (r.ids || []).slice();
+    let note = '';
+    if (!ids.length) {
+      const fb = fallbackModels(kind);
+      if (fb.length) { ids = fb; note = '接口没返回目录，先用预设，也可以手填'; }
+    }
+    if (dl && dl.tagName === 'DATALIST') dl.innerHTML = ids.map(id => '<option value="' + escAttr(id) + '"></option>').join('');
+    if (box) box.textContent = ids.length ? (note || ('拉到 ' + ids.length + ' 个，点输入框下拉选' + (r.from ? '（' + r.from + '）' : ''))) : ('没拉到：' + (r.err || '空') + '。可以手填模型名');
     const target = document.querySelector('[data-p="' + cfg.model + '"]') || document.getElementById(cfg.model);
     if (ids.length && target) showModelMenu(target, ids);
     if (ids.length === 1 && target && !target.value.trim()) target.value = ids[0];
@@ -3989,8 +4187,6 @@ async function maybeWizard(){
       + '  <div class="wz-t">第一次见面</div>'
       + '  <div class="wz-d">三步就能让她开口。做完了这张卡不会再出现。</div>'
       + '  <label class="wz-l">她叫什么<input id="wzName" value="' + esc(name0) + '" maxlength="24"></label>'
-      + '  <label class="wz-l">关系/身份<select id="wzRelationship"><option>女友</option><option>老婆</option><option>朋友</option><option>自定义</option></select></label>'
-      + '  <label class="wz-l">自定义身份（选择自定义时填写）<input id="wzRelationshipCustom" maxlength="40"></label>'
       + '  <label class="wz-l">你的 QQ（可以留空，留空就只在电脑上说）<input id="wzUin" value="' + esc(uin0) + '" placeholder="例如 123456789" inputmode="numeric"></label>'
       + '  <details class="wz-adv"><summary>高级</summary>'
       + '  <label class="wz-l">大脑地址<input id="wzBase" value="https://api.deepseek.com/v1"></label>'
@@ -4002,9 +4198,6 @@ async function maybeWizard(){
       + '  <div id="wzLog" class="wz-log"></div>'
       + '</div>';
     document.body.appendChild(box);
-    const relationship = s.relationship || '女友';
-    $('#wzRelationship').value = ['女友', '老婆', '朋友'].includes(relationship) ? relationship : '自定义';
-    $('#wzRelationshipCustom').value = $('#wzRelationship').value === '自定义' ? relationship : '';
     $('#wzSkip').onclick = function(){ box.remove(); goPage('config'); };
     $('#wzGo').onclick = wzSave;
     setTimeout(function(){ try { $('#wzName').focus(); } catch (e) {} }, 100);
@@ -4029,14 +4222,12 @@ async function wzSave(){
   const model = (($('#wzModel') || {}).value || '').trim() || 'deepseek-flash';
   if (!key) { wzLine('先填 API Key——没有它她不会说话。', 'bad'); return; }
 
-  const relationship = $('#wzRelationship').value === '自定义' ? $('#wzRelationshipCustom').value.trim() : $('#wzRelationship').value;
-  if (!relationship) { wzLine('请填写自定义身份', 'bad'); return; }
   const go = $('#wzGo');
   if (go) { go.disabled = true; go.textContent = '正在保存…'; }
   wzLine('保存中…');
   try {
-    const rs = await api('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, ownerUin: uin, relationship: relationship }) });
-    if (rs && rs.ok === false) throw new Error(rs.err || '身份保存失败');
+    const rs = await api('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, ownerUin: uin }) });
+    if (rs && rs.ok === false) throw new Error(rs.err || '保存失败');
     const rb = await api('/api/brain', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baseUrl: baseUrl, model: model, key: key }) });
     if (rb && rb.ok === false) throw new Error(rb.err || '保存失败');
     wzLine('好了，正在让她重新起来…');
@@ -4086,6 +4277,7 @@ async function wzSave(){
 
 loadState(); loadRecent(); loadPersona(); loadSelf(); loadCfg();
 setTimeout(() => { maybeWizard(); }, 600);
+setTimeout(() => { loadQqGuide(); }, 600);
 setInterval(() => { if ($('#overview') && $('#overview').classList.contains('on')) { loadState(); loadRecent(); } }, 15000);
 
 </script>  <div id="toast"></div>

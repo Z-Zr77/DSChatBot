@@ -38,12 +38,14 @@ try {
     const self = fs.readFileSync(path.join(root, 'src/self.mjs'), 'utf8');
     assert.match(self, /export function desc\(\)[\s\S]*?catch \{ return ''; \}/);
   });
-  t('两个向导都提供身份选择，复用已有保存接口', () => {
+  t('关系只在人设正文里改，第一次见面和 QQ 向导不再问身份', () => {
     const wizard = fs.readFileSync(path.join(root, 'src/wizard.html'), 'utf8');
     const ui = fs.readFileSync(path.join(root, 'src/ui.mjs'), 'utf8');
-    for (const text of [wizard, ui]) for (const role of ['女友', '老婆', '朋友', '自定义']) assert.ok(text.includes('<option>' + role + '</option>'));
+    assert.ok(!wizard.includes('关系/身份') && !wizard.includes('id="relationship"'));
+    const card = ui.slice(ui.indexOf("box.innerHTML = ''"), ui.indexOf('document.body.appendChild(box)'));
+    assert.ok(!card.includes('关系/身份') && !card.includes('wzRelationship'));
+    assert.ok(ui.includes('关系/身份：朋友'));
     assert.ok(wizard.includes("post('/api/save'"));
-    assert.ok(ui.includes('relationship: relationship'));
     assert.ok(ui.includes('setPersonaRelationship(PERSONA, relationship'));
     assert.ok(fs.readFileSync(path.join(root, 'launch.mjs'), 'utf8').includes('setPersonaRelationship(PATHS.persona, relationship'));
   });

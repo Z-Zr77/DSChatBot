@@ -1,6 +1,6 @@
 // Electron 主进程：窗口 + 托盘 + 拉起 launch.mjs（用它自己的 node 运行时）。
-// 还没填 API Key 时先开控制台，让「第一次见面」当第一屏。
-// QQ / NapCat 向导不抢这次启动，从 QQ 页或托盘再进。
+// 第一次见面还没做完（没有 API Key，或还没填主人号）时先开控制台。
+// QQ / NapCat 向导不参与启动落点，从 QQ 页或托盘再进。
 const { app, BrowserWindow, shell, Menu, Tray, nativeImage, dialog, Notification } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -118,11 +118,14 @@ async function up(url) {
   } catch { return false; }
 }
 
-function hasApiKey() {
+// 和工作台「第一次见面」同一条线：密钥和主人号都有了才算做完。
+function needsFirstMeet() {
   try {
     const s = JSON.parse(fs.readFileSync(path.join(dataDir(), 'setup.json'), 'utf8'));
-    return !!(s && s.api && String(s.api.key || '').trim());
-  } catch { return false; }
+    const key = !!(s && s.api && String(s.api.key || '').trim());
+    const owner = String((s && s.qq && (s.qq.ownerUin || s.qq.master)) || '').trim();
+    return !(key && owner);
+  } catch { return true; }
 }
 
 function showWindow() {
@@ -438,38 +441,27 @@ async function boot() {
   startBackend().catch((e) => console.error(e));
   setTimeout(() => { if (win && !win.isDestroyed()) applyWindowPrefs(win); }, 6000);
 
-  // 没密钥时即使 3071 上还留着向导，也要等控制台，不要先落到 wizard.html。
-  const needFirstMeet = !hasApiKey();
+  // 启动只等控制台。3071 上就算留着 QQ 向导，也不拿它当第一屏。
+  const needFirstMeet = needsFirstMeet();
   const t0 = Date.now();
-  let mode = null;
+  let consoleUp = false;
   while (Date.now() - t0 < 60000) {
-    if (await up(consoleUrl())) { mode = 'console'; break; }
-    if (!needFirstMeet && await up(WIZARD)) { mode = 'wizard'; break; }
+    if (await up(consoleUrl())) { consoleUp = true; break; }
     await new Promise((r) => setTimeout(r, 600));
   }
-  if (!mode) { win.loadURL('data:text/html,<h2 style="font-family:sans-serif;padding:40px">后端启动失败，请查看控制台输出</h2>'); return; }
+  if (!consoleUp) { win.loadURL('data:text/html,<h2 style="font-family:sans-serif;padding:40px">后端启动失败，请查看控制台输出</h2>'); return; }
   if (needFirstMeet) {
     await win.loadURL(consoleUrl()).catch(() => {});
-  } else if (mode === 'wizard') { await win.loadURL(WIZARD); }
-  else {
-    // 已经配过密钥：默认进聊天界面；聊天服务还没起来就先等一会儿，等不到再退回控制台
-    const t1 = Date.now();
-    let landed = false;
-    while (Date.now() - t1 < 20000) {
-      if (await up(chatUrl())) { await win.loadURL(chatUrl()).catch(() => {}); landed = true; break; }
-      await new Promise((r) => setTimeout(r, 700));
-    }
-    if (!landed) await win.loadURL(consoleUrl()).catch(() => {});
+    return;
   }
-
-  let timer = setInterval(async () => {
-    if (needFirstMeet || mode !== 'wizard') return;
-    // 向导里的“稍后再说”也会起控制台：只要控制台能响应了，就把窗口切过去
-    if (!(await up(consoleUrl()))) return;
-    clearInterval(timer);
-    mode = 'console';
-    await win.loadURL(consoleUrl());
-  }, 1200);
+  // 第一次见面已经做完：默认进聊天界面；聊天服务还没起来就先等一会儿，等不到再退回控制台
+  const t1 = Date.now();
+  let landed = false;
+  while (Date.now() - t1 < 20000) {
+    if (await up(chatUrl())) { await win.loadURL(chatUrl()).catch(() => {}); landed = true; break; }
+    await new Promise((r) => setTimeout(r, 700));
+  }
+  if (!landed) await win.loadURL(consoleUrl()).catch(() => {});
 }
 
 app.on('second-instance', () => showWindow());
