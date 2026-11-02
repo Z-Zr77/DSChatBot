@@ -304,8 +304,12 @@ function installCoreTask() {
   const launcher = fs.existsSync(path.join(d, 'launcher.bat')) ? 'launcher.bat' : 'launcher.sh';
   const vbs = path.join(dataDir(), 'napcat-core.vbs');
   const ps1 = path.join(dataDir(), 'install-core.ps1');
+  // 拉起前先收掉旧内核实例：计划任务是以最高权限跑的，只有它才杀得掉
+  // 上一批 NapCatWinBootMain（普通权限会被 Access denied 挡回来）。
+  // 不 /end 自己这条任务——那会把正在运行的 wscript 一起掐掉。
   fs.writeFileSync(vbs,
-    'CreateObject("WScript.Shell").Run "cmd /c cd /d ""' + d + '"" && ' + launcher + '", 0, False\r\n', 'utf8');
+    'Set sh = CreateObject("WScript.Shell")\r\n' +
+    'sh.Run "cmd /c taskkill /F /T /IM NapCatWinBootMain.exe >nul 2>nul & timeout /t 1 >nul & cd /d ""' + d + '"" && ' + launcher + '", 0, False\r\n', 'utf8');
   fs.writeFileSync(ps1,
     '$ErrorActionPreference = "Stop"\r\n' +
     'schtasks /create /tn "' + CORE_TASK + '" /tr "wscript.exe \\"' + vbs + '\\"" /sc once /st 00:00 /f /rl highest\r\n' +
