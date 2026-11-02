@@ -111,6 +111,7 @@ const DEFAULT_SETUP = {
   onebot: { wsPort: 3001, httpPort: 3000 },
   features: { voice: false, draw: false, qzone: false, browse: false, proactive: true },
   napcat: { dir: '' },
+  snowluma: { dir: '' },
   ui: { port: 3070 },
 };
 
@@ -124,16 +125,61 @@ export function loadSetup() {
     onebot: { ...DEFAULT_SETUP.onebot, ...(j.onebot || {}) },
     features: { ...DEFAULT_SETUP.features, ...(j.features || {}) },
     napcat: { ...DEFAULT_SETUP.napcat, ...(j.napcat || {}) },
+    snowluma: { ...DEFAULT_SETUP.snowluma, ...(j.snowluma || {}) },
     ui: { ...DEFAULT_SETUP.ui, ...(j.ui || {}) },
   };
 }
 
 export function saveSetup(patch) {
   const cur = loadSetup();
-  const next = { ...cur, ...patch, api: { ...cur.api, ...(patch.api || {}) }, qq: { ...cur.qq, ...(patch.qq || {}) }, onebot: { ...cur.onebot, ...(patch.onebot || {}) }, features: { ...cur.features, ...(patch.features || {}) }, napcat: { ...cur.napcat, ...(patch.napcat || {}) }, ui: { ...cur.ui, ...(patch.ui || {}) } };
+  const next = { ...cur, ...patch, api: { ...cur.api, ...(patch.api || {}) }, qq: { ...cur.qq, ...(patch.qq || {}) }, onebot: { ...cur.onebot, ...(patch.onebot || {}) }, features: { ...cur.features, ...(patch.features || {}) }, napcat: { ...cur.napcat, ...(patch.napcat || {}) }, snowluma: { ...cur.snowluma, ...(patch.snowluma || {}) }, ui: { ...cur.ui, ...(patch.ui || {}) } };
   ensureDirs();
   fs.writeFileSync(PATHS.setup, JSON.stringify(next, null, 2), 'utf8');
   return next;
 }
 
 export const isConfigured = () => { const s = loadSetup(); return !!(s.api.key && s.qq.uin); };
+
+/** 目录里有没有 Windows/Linux 的 launcher */
+export function hasLauncher(dir) {
+  if (!dir) return false;
+  try {
+    return fs.existsSync(path.join(dir, 'launcher.bat')) || fs.existsSync(path.join(dir, 'launcher.sh'));
+  } catch { return false; }
+}
+
+/** 像 NapCat：有 launcher（bat/sh）即可 */
+export function looksLikeNapCat(dir) {
+  return hasLauncher(dir);
+}
+
+/** 像 SnowLuma：有 launcher；若有 index.mjs 更像完整包，但没有也不挡 */
+export function looksLikeSnowLuma(dir) {
+  if (!hasLauncher(dir)) return false;
+  return true;
+}
+
+export function qqProtocolOf(setup) {
+  return setup && setup.qq && setup.qq.protocol === 'snowluma' ? 'snowluma' : 'napcat';
+}
+
+export function qqClientDirOf(setup) {
+  const s = setup || {};
+  if (qqProtocolOf(s) === 'snowluma') return String((s.snowluma && s.snowluma.dir) || '');
+  return String((s.napcat && s.napcat.dir) || '');
+}
+
+/** 在协议端目录里挑要跑的 launcher 文件名；没有则空串 */
+export function launcherNameIn(dir) {
+  if (!dir) return '';
+  try {
+    if (process.platform === 'win32') {
+      if (fs.existsSync(path.join(dir, 'launcher.bat'))) return 'launcher.bat';
+      if (fs.existsSync(path.join(dir, 'launcher.sh'))) return 'launcher.sh';
+    } else {
+      if (fs.existsSync(path.join(dir, 'launcher.sh'))) return 'launcher.sh';
+      if (fs.existsSync(path.join(dir, 'launcher.bat'))) return 'launcher.bat';
+    }
+  } catch {}
+  return '';
+}

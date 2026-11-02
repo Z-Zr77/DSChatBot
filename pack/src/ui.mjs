@@ -23,7 +23,7 @@ import * as lessons from './lessons.mjs';
 import * as skills from './skills.mjs';
 import * as budget from './budget.mjs';
 import { looksVision, resolveVision } from './capability.mjs';
-import { PATHS, loadSetup, saveSetup, APP } from './paths.mjs';
+import { PATHS, loadSetup, saveSetup, APP, looksLikeNapCat, looksLikeSnowLuma, qqProtocolOf, qqClientDirOf, launcherNameIn, hasLauncher } from './paths.mjs';
 import { testKey } from './brain.mjs';
 import { ensurePersonaFile, setPersonaRelationship, cleanRelationship, relationshipOf } from './persona-default.mjs';
 const RQ = PATHS.data;
@@ -1101,8 +1101,33 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (p === '/api/qr/refresh' && req.method === 'POST') {
-      // 手动换码：杀掉内核 → 用计划任务重新拉起（NapCat 重启后会写一张新码）
-      send(res, 200, { ok: true, refreshing: true });
+      const setup = (() => { try { return loadSetup(); } catch { return {}; } })();
+      const protocol = qqProtocolOf(setup);
+      if (protocol === 'snowluma') {
+        const dir = String((setup.snowluma && setup.snowluma.dir) || '');
+        const launcher = launcherNameIn(dir);
+        if (!dir || !launcher) {
+          return send(res, 200, { ok: false, mode: 'snowluma', err: '还没填好 SnowLuma 文件夹（里面要有 launcher.bat 或 launcher.sh）' });
+        }
+        try {
+          if (process.platform === 'win32' && launcher.endsWith('.bat')) {
+            spawn('cmd.exe', ['/c', 'launcher.bat'], { cwd: dir, detached: true, stdio: 'ignore', windowsHide: false }).unref();
+          } else {
+            spawn('bash', [path.join(dir, launcher)], { cwd: dir, detached: true, stdio: 'ignore' }).unref();
+          }
+        } catch (e) {
+          return send(res, 200, { ok: false, mode: 'snowluma', err: '拉起 SnowLuma 失败：' + String((e && e.message) || e).slice(0, 200) });
+        }
+        try {
+          const f = path.join(RQ, 'kernel-session.json');
+          let prev = {};
+          try { prev = JSON.parse(fs.readFileSync(f, 'utf8')) || {}; } catch {}
+          fs.writeFileSync(f, JSON.stringify({ ...prev, scanRequestedAt: Date.now(), protocol: 'snowluma' }, null, 2), 'utf8');
+        } catch {}
+        return send(res, 200, { ok: true, mode: 'snowluma', refreshing: true, webui: 'http://127.0.0.1:5099' });
+      }
+      // NapCat：杀掉内核 → 用计划任务重新拉起（重启后会写一张新码）
+      send(res, 200, { ok: true, mode: 'napcat', refreshing: true });
       const sh = (cmd, args) => new Promise((r) => {
         try { execFile(cmd, args, { windowsHide: true, timeout: 20000 }, () => r()); } catch { r(); }
       });
@@ -1117,7 +1142,7 @@ const server = http.createServer(async (req, res) => {
           const f = path.join(RQ, 'kernel-session.json');
           let prev = {};
           try { prev = JSON.parse(fs.readFileSync(f, 'utf8')) || {}; } catch {}
-          fs.writeFileSync(f, JSON.stringify({ ...prev, scanRequestedAt: Date.now() }, null, 2), 'utf8');
+          fs.writeFileSync(f, JSON.stringify({ ...prev, scanRequestedAt: Date.now(), protocol: 'napcat' }, null, 2), 'utf8');
         } catch {}
       })();
       return;
@@ -1275,24 +1300,42 @@ const server = http.createServer(async (req, res) => {
         }
         if (newest) kernel.push('--- NapCat 文件日志 ---', ...readText(newest.fp).split(/\r?\n/).filter(Boolean).slice(-60));
       } catch {}
-      let qr = { exists: false, at: 0 };
-      try { const s = fs.statSync(QR_FILE); qr = { exists: true, at: s.mtimeMs }; } catch {}
       let ncDir = NAPCAT_DIR;
       let qqProtocol = 'napcat';
       let snowlumaDir = '';
+      let setup3 = {};
       try {
-        const s3 = loadSetup();
-        if (s3.napcat && s3.napcat.dir) ncDir = String(s3.napcat.dir);
-        if (s3.qq && s3.qq.protocol === 'snowluma') qqProtocol = 'snowluma';
-        snowlumaDir = String((s3.snowluma && s3.snowluma.dir) || '');
+        setup3 = loadSetup();
+        if (setup3.napcat && setup3.napcat.dir) ncDir = String(setup3.napcat.dir);
+        qqProtocol = qqProtocolOf(setup3);
+        snowlumaDir = String((setup3.snowluma && setup3.snowluma.dir) || '');
       } catch {}
-      const ncReady = (() => { try { return fs.existsSync(path.join(ncDir, 'launcher.bat')); } catch { return false; } })();
+      const ncReady = looksLikeNapCat(ncDir);
+      const slReady = looksLikeSnowLuma(snowlumaDir);
+      // NapCat 二维码文件：仅 napcat 协议读本地 png；SnowLuma 的码在 5099 网页里
+      let qr = { exists: false, at: 0 };
+      if (qqProtocol !== 'snowluma') {
+        try {
+          const qrPath = process.env.QQBOT_QR_FILE || path.join(ncDir, 'cache', 'qrcode.png');
+          const s = fs.statSync(qrPath);
+          qr = { exists: true, at: s.mtimeMs, path: qrPath };
+        } catch {}
+      }
+      let snowlumaWebui = false;
+      if (qqProtocol === 'snowluma') {
+        try {
+          const r = await fetch('http://127.0.0.1:5099/', { method: 'GET', signal: AbortSignal.timeout(1200) });
+          snowlumaWebui = !!(r && (r.ok || r.status < 500));
+        } catch {}
+      }
       return send(res, 200, {
         qqEnabled: QQE,
         napcatDir: ncDir,
         napcatReady: ncReady,
+        snowlumaReady: slReady,
         qqProtocol,
         snowlumaDir,
+        snowlumaWebui,
         bridge: a, login, people, minds, qqLive,
         names: readJSON(NAMES, {}),
         ownerUin: ownerUin(),
@@ -1840,7 +1883,7 @@ const server = http.createServer(async (req, res) => {
       }
       const b = await body(req);
       const patch = { qq: {} };
-      // 协议端选择只记在 setup 里。SnowLuma 的拉起、找目录、出码还没接（见 qq 页 TODO）。
+      // 协议端选择与路径记在 setup；扫码/拉起按 qq.protocol 分流（见 /api/qr/refresh）。
       if (b.protocol !== undefined) {
         patch.qq.protocol = String(b.protocol) === 'snowluma' ? 'snowluma' : 'napcat';
       }
@@ -2451,7 +2494,7 @@ __CONSOLE_STYLE__
   </div>
   <div class="card scan-entry" id="scanEntry">
     <button class="btn scan-button" onclick="showQqScan()">扫码登录 QQ</button>
-    <button class="ghost" onclick="openQqWizard()">QQ / NapCat 向导</button>
+    <button class="ghost" onclick="openQqWizard()">QQ 接入向导</button>
     <button class="ghost" id="qrPin" aria-pressed="false" onclick="toggleQrPin()">固定扫码入口</button>
     <span id="qqSummary" class="dim"></span>
   </div>
@@ -2845,7 +2888,19 @@ async function renderNet(){
 async function qqStartScan(){
   try{
     await api('/api/config', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ qq: { enabled: true } }) });
-    await api('/api/qr/refresh', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+    const r = await api('/api/qr/refresh', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+    if (r && r.ok === false) { alert(r.err || '启动扫码失败'); return; }
+    if (r && r.mode === 'snowluma') {
+      toast('已尝试拉起 SnowLuma，请到登录页扫码', true);
+      for (let i=0;i<12;i++){
+        await new Promise(r=>setTimeout(r,1500));
+        const st=await api('/api/state');
+        if (st && st.snowlumaWebui) break;
+      }
+      await loadState();
+      try { window.open('http://127.0.0.1:5099', 'snowluma_webui'); } catch (e) {}
+      return;
+    }
     for (let i=0;i<20;i++){ await new Promise(r=>setTimeout(r,1500)); const st=await api('/api/state'); if(st && st.qr && st.qr.exists){ break; } }
     await loadState();
   }catch(e){ alert('启动扫码失败：' + (e && e.message || e)); }
@@ -3055,10 +3110,10 @@ function qqGuideHtml(protocol) {
       + '<li><b>先装电脑版 QQ。</b>到 <a href="https://im.qq.com/pcqq" target="_blank" rel="noopener">QQ 官网</a> 下载安装。建议另开一个小号给她登录，不要用你平时聊天的大号。</li>'
       + '<li><b>下载 SnowLuma 并解压。</b>到 <a href="https://github.com/SnowLuma/SnowLuma/releases" target="_blank" rel="noopener">SnowLuma 的发布页</a> 下完整包（文件名里带 win-x64 或 linux-x64，不要下带 lite 的，除非电脑里已经有 Node.js 22 以上）。解压到一个找得到的地方。</li>'
       + '<li><b>把文件夹指过来。</b>打开解压出来的文件夹，Windows 里要能看到 launcher.bat，Linux 是 launcher.sh。把这一层的路径填到下面，点「保存协议和路径」。不要填到上一层，也不要填进里面的子文件夹。</li>'
-      + '<li><b>用它自己的页面登录。</b>双击 launcher 启动。浏览器打开 <code>http://127.0.0.1:5099</code>，密码在启动时那个黑窗口里。按网页上的提示把 QQ 接上并扫码。登录码在这个网页里，不一定出现在本页。</li>'
+      + '<li><b>用它自己的页面登录。</b>保存路径后点「扫码登录 QQ」，这里会尝试拉起 launcher。浏览器打开 <code>http://127.0.0.1:5099</code>（也可点本页「打开登录页」），密码在启动时那个黑窗口里。按网页上的提示把 QQ 接上并扫码。登录码在这个网页里，不会出现在本页的二维码框。</li>'
       + '<li><b>填你自己的 QQ 号。</b>扫码的是她用的小号。往下翻到「你的 QQ（主人号）」，填你自己的号。两个号不要相同。</li>'
       + '</ol>'
-      + '<p style="margin:8px 0 0">一直没有码：先确认 launcher 已经在跑、5099 那个网页打得开，扫的是网页上的码。这一页还不会替你启动 SnowLuma，也不会自动判断文件夹对不对。</p>';
+      + '<p style="margin:8px 0 0">一直没有码：先确认文件夹里有 launcher、点过扫码或手动跑过 launcher、5099 那个网页打得开，扫的是网页上的码。</p>';
   }
   return '<ol style="margin:8px 0 0 1.2em;padding:0">'
     + '<li><b>先装电脑版 QQ。</b>到 <a href="https://im.qq.com/pcqq" target="_blank" rel="noopener">QQ 官网</a> 下载安装。建议另开一个小号给她登录，不要用你平时聊天的大号。</li>'
@@ -3067,7 +3122,7 @@ function qqGuideHtml(protocol) {
     + '<li><b>出码，用另一部手机扫。</b>点这一页的「扫码登录 QQ」。码出来后，用另一部手机上的 QQ（切到小号）来扫，并在手机上点「确认登录」。同一部手机扫不了自己屏幕上的码。</li>'
     + '<li><b>填你自己的 QQ 号。</b>扫码的是她用的小号。往下翻到「你的 QQ（主人号）」，填你自己的号。两个号不要相同。</li>'
     + '</ol>'
-    + '<p style="margin:8px 0 0">一直没有码：多半是第 3 步的文件夹不对，或者 NapCat 还没跑起来。打开那个文件夹看有没有 launcher.bat；没有就退回上一层，或重新解压。改完路径要点保存，再点「扫码登录 QQ」，或点二维码上的「立即换一张」。QQ 电脑版也要先装好。还不行就点「QQ / NapCat 向导」，它会检查 QQ 和这个文件夹。</p>';
+    + '<p style="margin:8px 0 0">一直没有码：多半是第 3 步的文件夹不对，或者 NapCat 还没跑起来。打开那个文件夹看有没有 launcher.bat；没有就退回上一层，或重新解压。改完路径要点保存，再点「扫码登录 QQ」，或点二维码上的「立即换一张」。QQ 电脑版也要先装好。还不行就点「QQ 接入向导」，它会检查 QQ 和这个文件夹。</p>';
 }
 function paintQqGuide() {
   const sel = document.getElementById('qqProtocol');
@@ -3079,9 +3134,14 @@ function paintQqGuide() {
   if (body) body.innerHTML = qqGuideHtml(protocol);
   const hint = document.getElementById('qqClientHint');
   if (!hint) return;
-  hint.textContent = protocol === 'snowluma'
-    ? '选择会记住。自动启动 SnowLuma、检查这个文件夹、以及用它在本页出码，还没接上；请先自己运行 launcher，到 5099 页面登录。'
-    : '保存后，本页会到这个文件夹里找 launcher.bat。找不到就不会出二维码。';
+  const ready = protocol === 'snowluma' ? !!(S && S.snowlumaReady) : !!(S && S.napcatReady);
+  if (protocol === 'snowluma') {
+    hint.textContent = ready
+      ? '已认出 SnowLuma 文件夹。保存后点「扫码登录 QQ」会尝试拉起 launcher；登录码在 http://127.0.0.1:5099 ，本页不会显示二维码图。'
+      : '保存后会检查这个文件夹是否有 launcher。点「扫码登录 QQ」会尝试拉起；登录请打开 http://127.0.0.1:5099 。';
+  } else {
+    hint.textContent = '保存后，本页会到这个文件夹里找 launcher.bat。找不到就不会出二维码。';
+  }
 }
 async function loadQqGuide() {
   try {
@@ -3097,7 +3157,6 @@ async function saveQqClient() {
   const sel = document.getElementById('qqProtocol');
   const protocol = sel && sel.value === 'snowluma' ? 'snowluma' : 'napcat';
   const clientDir = String((document.getElementById('qqClientDir') || {}).value || '').trim();
-  // TODO(backend): SnowLuma 通道、进程拉起和路径探测不在这里做。只把 qq.protocol 与 snowluma.dir / napcat.dir 写进 setup，给协议端后端读。
   const r = await api('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ protocol: protocol, clientDir: clientDir }) });
   if (!r || r.ok === false) return toast((r && r.err) || '保存失败', false);
   QQ_DIRS[protocol] = clientDir;
@@ -3110,8 +3169,13 @@ function qqNoQrHelp(S) {
   const dir = protocol === 'snowluma' ? String((S && S.snowlumaDir) || '') : String((S && S.napcatDir) || '');
   const where = dir ? ('现在填的文件夹是 ' + esc(dir) + '。') : '这一栏还是空的。';
   if (protocol === 'snowluma') {
-    return '<div>还没有码。SnowLuma 的登录码在它自己的网页 <b>http://127.0.0.1:5099</b>，不一定出现在这里。'
-      + where + '请确认已经解压完整包、双击了 launcher，并且网页打得开。本页还不会自动检查这个文件夹。</div>';
+    const ready = !!(S && S.snowlumaReady);
+    const web = !!(S && S.snowlumaWebui);
+    return '<div>SnowLuma 的登录码在网页 <b>http://127.0.0.1:5099</b>，不会出现在本页二维码框。'
+      + where
+      + (ready ? '文件夹看起来对。' : '文件夹还不像 SnowLuma（缺 launcher）。')
+      + (web ? '登录页现在打得开。' : '登录页暂时还没通，可点「扫码登录 QQ」让这里试着拉起，或自己先跑 launcher。')
+      + ' <a href="http://127.0.0.1:5099" target="_blank" rel="noopener">打开登录页</a></div>';
   }
   return '<div>还没有二维码。按顺序检查：电脑版 QQ 装了没有；NapCat 解压了没有；下面的路径是不是「能看见 launcher.bat」的那一层。'
     + where + '改完要点「保存协议和路径」，再点「扫码登录 QQ」或右上「立即换一张」。同一部手机扫不了自己屏幕上的码，要用另一部手机的小号扫。你自己的号填在再下面的「主人号」。</div>';
@@ -3137,7 +3201,22 @@ function paintOwnerTag(S){
 
 async function qrRefresh(){
   toast('正在换新码，约 5–15 秒…', true);
-  try { await api('/api/qr/refresh', { method: 'POST' }); } catch {}
+  let r = null;
+  try { r = await api('/api/qr/refresh', { method: 'POST' }); } catch {}
+  if (r && r.ok === false) { toast(r.err || '换码失败', false); return; }
+  if (r && r.mode === 'snowluma') {
+    toast('已尝试拉起 SnowLuma，请到 5099 登录页扫码', true);
+    for (let i = 0; i < 10; i++) {
+      await new Promise(rr => setTimeout(rr, 1200));
+      try {
+        const st = await api('/api/state');
+        paintQr(st, st.login);
+        if (st && st.snowlumaWebui) { toast('登录页已通', true); return; }
+      } catch {}
+    }
+    toast('登录页还没通，可点「打开登录页」或再试一次', false);
+    return;
+  }
   let last = 0;
   for (let i = 0; i < 20; i++) {
     await new Promise(r => setTimeout(r, 1500));
@@ -3170,7 +3249,23 @@ function paintQr(S, l){
       + '<button class="btn" onclick="qqStartScan()">启动扫码登录 QQ</button></div>'
       + '<p class="dim" style="margin:0">QQ 接入未开启。点击启动后拉起内核并获取二维码。</p></div>';
     slot.dataset.built=''; return; }
-  if (l) { slot.innerHTML = '<div class="card dim">QQ 已登录。要重装路径或重新扫码，点这一页的「QQ / NapCat 向导」，或托盘里的同一项。</div>';  slot.dataset.built = ''; slot.dataset.at = ''; return; }
+  if (l) { slot.innerHTML = '<div class="card dim">QQ 已登录。要重装路径或重新扫码，点这一页的「QQ 接入向导」，或托盘里的同一项。</div>';  slot.dataset.built = ''; slot.dataset.at = ''; return; }
+  if (S && S.qqProtocol === 'snowluma') {
+    const ready = !!S.snowlumaReady;
+    const web = !!S.snowlumaWebui;
+    slot.innerHTML = '<div class="card">'
+      + '<div class="toolbar"><b>扫码登录 QQ（SnowLuma）</b>'
+      + '<span class="pill ' + (web ? 'ok' : (ready ? 'warn' : '')) + '">' + (web ? '登录页已通' : (ready ? '等待登录页' : '路径未就绪')) + '</span>'
+      + '<span class="spacer"></span>'
+      + '<button class="btn" onclick="qqStartScan()">拉起并打开登录页</button></div>'
+      + '<p class="dim" style="margin:0 0 8px">SnowLuma 的二维码在它自己的网页里，本页<strong>不会</strong>显示本地二维码图。点上面按钮会尝试启动 launcher，然后打开登录页。</p>'
+      + '<div class="row" style="gap:10px;margin-bottom:8px">'
+      + '<a class="btn" href="http://127.0.0.1:5099" target="_blank" rel="noopener">打开登录页 http://127.0.0.1:5099</a></div>'
+      + '<div class="dim">' + qqNoQrHelp(S) + '</div></div>';
+    slot.dataset.built = '';
+    slot.dataset.at = '';
+    return;
+  }
   if (slot.dataset.built !== '1') {
     slot.innerHTML = '<div class="card">'
       + '<div class="toolbar"><b>扫码登录 QQ</b><span class="pill" id="qrPill"></span><span class="spacer"></span>'
