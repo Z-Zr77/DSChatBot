@@ -1910,10 +1910,21 @@ const server = http.createServer(async (req, res) => {
       try { return send(res, 200, { ok: true, ...(await qqlogin.status()) }); }
       catch (e) { return send(res, 200, { ok: false, err: String(e && e.message || e) }); }
     }
+    // ① 打开普通 QQ 客户端（有窗口，能输密码）
     if (p === '/api/qq/login/start' && req.method === 'POST') {
       try {
-        const st = await qqlogin.start();
-        return send(res, 200, { ok: true, ...st, steps: qqlogin.STEPS });
+        const r = await qqlogin.openClient();
+        const st = await qqlogin.status();
+        return send(res, 200, { ...r, ...st, steps: qqlogin.STEPS });
+      } catch (e) {
+        return send(res, 200, { ok: false, err: String(e && e.message || e) });
+      }
+    }
+    // ② 登录好了，拉起 NapCat 内核（复用 QQ 记住的凭证）
+    if (p === '/api/qq/login/attach' && req.method === 'POST') {
+      try {
+        const st = await qqlogin.attach();
+        return send(res, 200, { ok: true, ...st });
       } catch (e) {
         return send(res, 200, { ok: false, err: String(e && e.message || e) });
       }
@@ -2516,14 +2527,14 @@ __CONSOLE_STYLE__
   </div>
   <div class="card" id="qqLoginCard">
     <div class="toolbar"><b>登录 QQ</b><span class="spacer"></span><span id="qqLoginStage" class="dim">未开始</span></div>
-    <p class="dim" style="margin:6px 0 10px">不用扫码。登录发生在 QQ 自己的窗口里（它就是这个小号的真客户端），我们只负责把它拉起来、盯着结果。</p>
-    <ol id="qqLoginSteps" class="dim" style="margin:0 0 12px 18px;line-height:1.9"></ol>
-    <div class="row" style="gap:10px">
-      <button class="btn" onclick="qqLoginStart(this)">启动 QQ，去登录</button>
-      <button class="ghost" onclick="qqLoginRefresh()">我已登录好，检查一下</button>
+    <p class="dim" style="margin:6px 0 10px">只有扫码这一条路——NapCat 拉起 QQ 时是无窗口的，没有地方输密码。但<b>扫一次就够</b>：登录态会留在本机，之后开机自动登回去。</p>
+    <div class="row" style="gap:10px;margin-bottom:10px">
+      <button class="btn" onclick="qqScanNow(this)">扫码登录 QQ</button>
+      <button class="ghost" onclick="qqLoginRefresh()">检查一下</button>
       <span class="dim" id="qqLoginMsg"></span>
     </div>
-    <p class="dim" style="margin:10px 0 0">密码不经过我们，也不会存到任何文件里——存在 QQ 客户端自己那儿。下次开机会自动登录。</p>
+    <div id="qrSlot"></div>
+    <p class="dim" style="margin:10px 0 0">用另一台手机上的小号扫；同一台手机扫不了自己屏幕上的码。</p>
   </div>
   <div id="statusBox"></div>
   <div class="card" style="margin-top:14px">
@@ -3148,10 +3159,10 @@ function qqGuideHtml(protocol) {
     + '<li><b>先装电脑版 QQ。</b>到 <a href="https://im.qq.com/pcqq" target="_blank" rel="noopener">QQ 官网</a> 下载安装。建议另开一个小号给她登录，不要用你平时聊天的大号。</li>'
     + '<li><b>下载 NapCat 并解压。</b>NapCat 是免费的小软件，负责帮这里连上 QQ。到 <a href="https://github.com/NapNeko/NapCatQQ/releases" target="_blank" rel="noopener">NapCat 的发布页</a> 下载带 Shell 的压缩包，解压到一个找得到的地方。</li>'
     + '<li><b>把文件夹指过来。</b>打开解压出来的文件夹，确认这一层里有 launcher.bat（Windows）。把这一层的路径填到下面，点「保存协议和路径」。不要填到上一层，也不要填进 cache。</li>'
-    + '<li><b>登录。</b>点「启动 QQ，去登录」，屏幕上会开一个 QQ 登录窗口——在它左下角点「账号密码登录」，输入小号账号密码，勾上「记住密码」；手机弹「是否本人登录」就点「是我本人」。</li>'
+    + '<li><b>扫码登录。</b>点「扫码登录 QQ」，内核起来后会出一张码；用另一台手机上的 QQ（切到小号）扫，扫完在手机上点「确认登录」。勾上「记住登录」，之后开机会自动登回去。</li>'
     + '<li><b>填你自己的 QQ 号。</b>扫码的是她用的小号。往下翻到「你的 QQ（主人号）」，填你自己的号。两个号不要相同。</li>'
     + '</ol>'
-    + '<p style="margin:8px 0 0">一直拉不起来：多半是第 3 步的文件夹不对，或者 NapCat 没跑起来。打开那个文件夹看有没有 launcher.bat；没有就退回上一层，或重新解压。改完路径要点保存，再点「启动 QQ，去登录」。QQ 电脑版也要先装好。还不行就点「QQ 接入向导」，它会检查 QQ 和这个文件夹。</p>';
+    + '<p style="margin:8px 0 0">一直拉不起来：多半是第 3 步的文件夹不对，或者 NapCat 没跑起来。打开那个文件夹看有没有 launcher.bat；没有就退回上一层，或重新解压。改完路径要点保存，再点「扫码登录 QQ」。QQ 电脑版也要先装好。还不行就点「QQ 接入向导」，它会检查 QQ 和这个文件夹。</p>';
 }
 function paintQqGuide() {
   const sel = document.getElementById('qqProtocol');
@@ -4295,7 +4306,7 @@ async function resetBudget(){
 }
 
 // 密码登录：把三步写给人看，并盯着"内核 → QQ 窗口 → 已登录"三个阶段。
-const QQ_STAGE_TXT = { idle: '未开始', booting: '内核已起，等 QQ 窗口', waiting: 'QQ 开着，等你登录', online: '已登录' };
+const QQ_STAGE_TXT = { idle: '未开始', booting: '内核起来了，等扫码', login: '内核起来了，等扫码', online: '已登录' };
 async function qqLoginRefresh(){
   try {
     const st = await api('/api/qq/login/status').catch(function(){ return null; });
@@ -4307,7 +4318,24 @@ async function qqLoginRefresh(){
     return st;
   } catch (e) { return null; }
 }
-async function qqLoginStart(btn){
+async function qqScanNow(btn){
+  const msg = document.getElementById('qqLoginMsg');
+  if (btn) { btn.disabled = true; btn.textContent = '正在拉起内核…'; }
+  if (msg) msg.textContent = '';
+  try {
+    await api('/api/qr/refresh', { method: 'POST' }).catch(function(){});
+    // 内核起来后码会写进 cache/qrcode.png，轮询几次等它出
+    for (let i = 0; i < 24; i++) {
+      await new Promise(function(r){ setTimeout(r, 1500); });
+      const st = await api('/api/state').catch(function(){ return null; });
+      if (st && st.qr && st.qr.exists) { STATE = st; if ($('#qrSlot')) paintQr(st); break; }
+    }
+    if (msg) msg.textContent = '码在上面，扫一下就行';
+  } catch (e) { if (msg) msg.textContent = String(e.message || e); }
+  if (btn) { btn.disabled = false; btn.textContent = '扫码登录 QQ'; }
+  qqLoginRefresh();
+}
+async function qqLoginStartUnused(btn){
   const msg = document.getElementById('qqLoginMsg');
   if (btn) { btn.disabled = true; btn.textContent = '正在拉起…'; }
   if (msg) msg.textContent = '';
@@ -4319,13 +4347,24 @@ async function qqLoginStart(btn){
   if (btn) { btn.disabled = false; btn.textContent = '启动 QQ，去登录'; }
   qqLoginRefresh();
 }
+async function qqLoginAttach(btn){
+  const msg = document.getElementById('qqLoginMsg');
+  if (btn) { btn.disabled = true; btn.textContent = '正在接上…'; }
+  if (msg) msg.textContent = '正在拉起内核，等它复用 QQ 的登录态…';
+  try {
+    const r = await api('/api/qq/login/attach', { method: 'POST' }).catch(function(e){ return { ok:false, err:String(e.message||e) }; });
+    if (msg) msg.textContent = (r && r.ok !== false) ? (r.stage === 'online' ? '接上了' : '内核起来了，可能还要等十几秒') : (r.err || '接不上');
+  } catch (e) { if (msg) msg.textContent = String(e.message || e); }
+  if (btn) { btn.disabled = false; btn.textContent = '登录好了，接上她'; }
+  qqLoginRefresh();
+}
 function qqLoginPaintSteps(){
   const box = document.getElementById('qqLoginSteps');
   if (!box || box.childElementCount) return;
   const steps = [
-    '点「启动 QQ，去登录」，屏幕上会开一个 QQ 登录窗口。',
-    '在那个窗口左下角点「账号密码登录」，输入小号的 QQ 号和密码，勾上「记住密码」。',
-    '手机 QQ 如果弹「是否本人登录」，点「是我本人」。',
+    '点「打开 QQ」——会开出电脑版 QQ 的登录窗口（这个号真正的客户端）。',
+    '在窗口里用账号密码登录，勾上「记住密码 / 自动登录」；手机弹「是否本人登录」就点「是我本人」。',
+    '登录好之后点「接上她」——她在后台连上这个 QQ，以后开机自动登录，不用再输密码。',
   ];
   box.innerHTML = steps.map(function(t){ return '<li>' + t + '</li>'; }).join('');
 }
