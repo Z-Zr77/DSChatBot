@@ -1524,8 +1524,10 @@ const server = http.createServer(async (req, res) => {
 }
   if (p === '/api/memory') {
       if (req.method === 'GET') {
-        const uin = url.searchParams.get('uin');
-                return send(res, 200, { uin, items: memory.list(uin) });
+        // 不带 uin 时退回主人号；全新安装还没填主人号，记忆就记在 local 名下
+        let uin = String(url.searchParams.get('uin') || '').trim();
+        if (!uin) { try { uin = String((loadSetup().qq || {}).ownerUin || '').trim() || 'local'; } catch { uin = 'local'; } }
+        return send(res, 200, { uin, items: memory.list(uin) });
       }
       const b = await body(req);
             if (req.method === 'POST') {
@@ -3167,8 +3169,9 @@ async function loadState(){
   const who = $('#memWho');
   if (who && S.people) {
     const cur = who.value, nms = S.names || {}, OWN = String(S.ownerUin || '');
-    const list = S.people.filter(u => /^[0-9]{5,12}$/.test(String(u)));
-    who.innerHTML = list.map(u => '<option value="' + u + '">' + u
+    // local = 还没填主人 QQ 时本机窗口用的身份，也要能选，否则新装的用户看到的永远是空
+    const list = S.people.filter(u => /^[0-9]{5,12}$/.test(String(u)) || String(u) === 'local');
+    who.innerHTML = list.map(u => '<option value="' + u + '">' + (String(u) === 'local' ? '本机（还没填 QQ）' : u)
       + (String(u) === OWN ? '（主人号）' : (nms[u] && nms[u].name ? '（' + esc(nms[u].name) + '）' : '')) + '</option>').join('');
     if (list.indexOf(cur) >= 0) who.value = cur;
   }
@@ -3516,7 +3519,8 @@ async function loadPersona(){ const r = await api('/api/persona'); $('#personaTe
 async function savePersona(){ await api('/api/persona',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:$('#personaText').value})}); $('#pState').textContent = '已保存 · 下一条生效'; }
 
 async function loadMem(){
-  const uin = $('#memWho').value || (S.people && S.people[0]) || '';
+  let uin = $('#memWho').value || (S.people && S.people[0]) || '';
+  if (!uin && S && !S.ownerUin) uin = 'local';   // 全新安装：记忆记在 local 名下
   if (!uin) { $('#memTable').innerHTML = '<tr><td class="dim">还没有任何人的记忆</td></tr>'; renderMemoryGraph([]); return; }
   const r = await api('/api/memory?uin=' + uin);
   if ($('#memWho').value && $('#memWho').value !== uin) return;
