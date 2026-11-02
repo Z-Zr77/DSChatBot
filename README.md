@@ -1,6 +1,9 @@
 # DSChatBot · 住在你电脑里的数字人
 
-> 她有自己的一天：有作息、有记性、会困、会主动找你说话；她在 QQ 或浏览器里都能跟你聊，记住的是"你"，不是"某个入口里的你"。
+**一个住在你电脑里的数字角色：有作息、有记性、会主动开口，还会给自己拍照。**
+
+> 她有自己的日程和状态：早上会赖床，深夜真的会困。她记得你说过的事，也会主动找你说话。
+> 电脑窗口、手机浏览器、QQ —— 三个入口，同一个人同一份记忆。
 > *A digital person living on your Windows PC — with her own schedule, memory and moods. Talk to her on QQ, or in a browser.*
 
 Windows · 本地数据 · 你自己的模型 Key · [MIT](LICENSE)
