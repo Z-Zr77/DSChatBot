@@ -2677,12 +2677,16 @@ __CONSOLE_STYLE__
       <div id="memGraphView">
         <div class="toolbar"><span class="hint">拖动节点或空白处 · 滚轮缩放 · 点击节点查看详情</span><span class="spacer"></span>
           <button class="ghost" aria-label="放大图谱" onclick="zoomMemory(1.25)">＋</button><button class="ghost" aria-label="缩小图谱" onclick="zoomMemory(0.8)">－</button><button class="ghost" onclick="fitMemory()">适应画布</button></div>
+        <div class="gal-wrap">
+        <aside id="memStatsPane" class="gal-pane"></aside>
         <div class="graph-frame">
           <canvas id="memCanvas" hidden></canvas>
           <aside id="memPeople" class="card" hidden></aside>
           <svg id="memGraph" viewBox="0 0 1000 600" aria-label="记忆关系图"></svg>
           <div id="memGraphEmpty" class="graph-empty dim"></div>
           <aside id="memDetail" class="card" hidden><button class="ghost" onclick="closeMemoryDetail()">关闭详情</button><p id="memDetailText"></p><p id="memDetailMeta" class="dim"></p><button class="btn" onclick="editSelectedMemory()">编辑这条</button></aside></div>
+        <aside id="memStreamPane" class="gal-pane"></aside>
+        </div>
         <p class="hint">大节点为核心记忆。实线：旧说法 → 修正；虚线：原因 → 结果。只显示已记录的关系，无关系的节点独立显示。</p>
       </div>
       <div id="memListView" hidden>
@@ -3596,6 +3600,40 @@ document.addEventListener('click', (ev) => {
 }, true);
 
 let GALAXY = [], GALAXY_SEL = '';
+// 左：记忆构成（按类型分 + 平均强度）；右：认知流（最近写进来的）
+function paintMemoryPanes(people){
+  const all = [];
+  for (const p of (people || [])) for (const it of (p.items || [])) all.push(Object.assign({}, it, { _person: p.name }));
+  const kinds = [['core','核心','#ffd166'],['fact','事实','#5ed3ff'],['important','重要','#c79bff'],['trivia','琐事','#8ea0b8']];
+  const total = all.length || 1;
+  const left = document.getElementById('memStatsPane');
+  if (left) {
+    const rows = kinds.map(([k,label,color]) => {
+      const n = all.filter(x => (x.kind || 'trivia') === k).length;
+      const pct = Math.round(n / total * 100);
+      return '<div class="ps-row"><span style="color:' + color + '">' + label + '</span>'
+        + '<b>' + n + '</b><span class="ps-bar"><i style="width:' + pct + '%;background:' + color + '"></i></span></div>';
+    }).join('');
+    const avg = all.length ? (all.reduce((n, x) => n + (Number(x.score) || 0), 0) / all.length).toFixed(1) : '0';
+    left.innerHTML = '<div class="ps-title">记忆构成</div>'
+      + '<div class="ps-total">' + all.length + ' 条<span class="dim"> · 平均强度 ' + avg + '</span></div>'
+      + rows;
+  }
+  const right = document.getElementById('memStreamPane');
+  if (right) {
+    const recent = all.slice().sort((a, b) => String(b.last || b.created || '').localeCompare(String(a.last || a.created || ''))).slice(0, 8);
+    const rows = recent.map(x => {
+      const when = String(x.last || x.created || '').slice(5);
+      const k = x.kind === 'core' ? '核心' : x.kind === 'important' ? '重要' : x.kind === 'fact' ? '事实' : '琐事';
+      return '<div class="st-row"><span class="dim">' + when + '</span>'
+        + '<span class="st-k k-' + (x.kind || 'trivia') + '">' + k + '</span>'
+        + '<span class="st-t">' + esc(String(x.text).slice(0, 26)) + '</span></div>';
+    }).join('');
+    right.innerHTML = '<div class="ps-title">认知流</div>'
+      + (rows || '<p class="dim">还没有新记忆</p>');
+  }
+}
+
 async function setOwnerFromGalaxy(uin){
   const v = String(uin || '').trim();
   try {
@@ -3626,6 +3664,7 @@ async function loadMem(){
       }
       const st = $('#memGalaxyStats');
       if (st) st.textContent = '共 ' + flat.length + ' 条 · ' + g.people.length + ' 个人';
+      paintMemoryPanes(g.people);
       const wv = $('#memWho');
       if (wv && g.people.length) {
         wv.innerHTML = g.people.map(p => '<option value="' + p.uin + '">' + (p.uin === 'local' ? 'local' : esc(p.name)) + '</option>').join('');

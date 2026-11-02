@@ -82,3 +82,19 @@ th,tbody tr:hover td,tr:hover td,.dd .mi:hover{background:var(--card2);color:var
 #memPeople .k-core{ color:#ffd166 } #memPeople .k-fact{ color:#5ed3ff }
 #memPeople .k-important{ color:#c79bff } #memPeople .k-trivia{ color:#8ea0b8 }
 #memCanvas{ position:absolute; inset:0; width:100%; height:100% }
+
+/* 记忆页三栏：构成 / 星图 / 认知流 */
+.gal-wrap{ display:flex; gap:14px; align-items:stretch }
+.gal-pane{ flex:0 0 210px; min-height:320px; border:1px solid var(--line); border-radius:14px; padding:12px 13px; background:rgba(255,255,255,.02) }
+.gal-pane:last-child{ flex-basis:250px }
+.gal-wrap .graph-frame{ flex:1; min-width:0 }
+.ps-title{ font-size:13px; font-weight:600; letter-spacing:.04em; color:#cfd8e6; margin-bottom:8px }
+.ps-total{ font-size:20px; font-weight:700; margin-bottom:10px }
+.ps-row{ display:grid; grid-template-columns:44px 28px 1fr; gap:6px; align-items:center; font-size:12px; margin-bottom:7px }
+.ps-bar{ display:block; height:5px; border-radius:99px; background:rgba(255,255,255,.07); overflow:hidden }
+.ps-bar i{ display:block; height:100%; border-radius:99px }
+.st-row{ display:flex; gap:6px; align-items:baseline; font-size:12px; padding:5px 0; border-bottom:1px dashed rgba(255,255,255,.05) }
+.st-k{ flex:0 0 auto; font-size:10.5px; padding:0 5px; border-radius:99px; border:1px solid currentColor; opacity:.85 }
+.st-k.k-core{ color:#ffd166 } .st-k.k-fact{ color:#5ed3ff }
+.st-k.k-important{ color:#c79bff } .st-k.k-trivia{ color:#8ea0b8 }
+.st-t{ color:#c3cedd; line-height:1.4 }
