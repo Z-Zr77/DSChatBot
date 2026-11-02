@@ -125,9 +125,7 @@ function memoryTab(id) {
   if (id === 'lessonsPane') loadLessons();
   if (id === 'skillsPane') loadSkills();
 }
-// 记忆页现在是星图，没有 tablist 了；兼容旧页面时才挂键盘导航
-const memoryTablist = document.querySelector('#memory [role="tablist"]');
-if (memoryTablist) memoryTablist.onkeydown = event => {
+document.querySelector('#memory [role="tablist"]').onkeydown = event => {
   const tabs = [...document.querySelectorAll('#memory [role="tab"]')];
   const index = tabs.indexOf(document.activeElement);
   if (index < 0 || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
@@ -162,7 +160,7 @@ const KIND_STYLE = {
   important: { name: '重要', color: '#c79bff', r: 21 },
   trivia:    { name: '琐事', color: '#8ea0b8', r: 15 },
 };
-let memoryAll = [], memoryKind = '', memoryQuery = '', memoryClusters = [];
+let memoryAll = [], memoryKind = '', memoryQuery = '';
 let memoryDays = 0;                     // 「遗忘进度」：往后推几天看谁先暗下去
 const HALF_LIFE = { core: Infinity, important: 30, fact: 45, trivia: 14 };   // 与 memory.mjs 一致
 
@@ -213,47 +211,14 @@ function projectScore(it) {
 }
 function applyMemoryFilter() {
   const list = memoryAll.filter(memoryMatches);
-  const groups = new Map();
-  for (const it of list) {
-    const k = String(it._uin || '');
-    if (!groups.has(k)) groups.set(k, []);
-    groups.get(k).push(it);
-  }
-  const keys = [...groups.keys()];
-  const R = Math.max(240, 100 * Math.sqrt(Math.max(1, keys.length)));
-  const centers = new Map();
-  keys.forEach((k, gi) => {
-    // 只有一个人时就摆在正中间，别为了"分簇"把唯一一团推到画布外
-    const ang = gi * (Math.PI * 2 / Math.max(1, keys.length));
-    const cx = keys.length === 1 ? 520 : 520 + Math.cos(ang) * R;
-    const cy = keys.length === 1 ? 330 : 330 + Math.sin(ang) * R;
-    centers.set(k, { x: cx, y: cy, label: '', isOwner: false, uin: k });
+  memoryNodes = list.map((item, i) => {
+    const st = kindStyle(item.kind);
+    const score = memoryDays ? projectScore(item) : item.score;
+    return { ...item, score, x: 500 + Math.cos(i * 2.4) * Math.sqrt(i) * 74, y: 300 + Math.sin(i * 2.4) * Math.sqrt(i) * 64, radius: st.r, color: st.color, label: st.name };
   });
-  memoryNodes = [];
-  keys.forEach(k => {
-    const arr = groups.get(k);
-    const c = centers.get(k);
-    c.label = String(arr[0]._person || k);
-    c.isOwner = arr.some(x => x._isOwner);
-    arr.forEach((item, i) => {
-      const st = kindStyle(item.kind);
-      const score = memoryDays ? projectScore(item) : item.score;
-      const a = i * 2.399963;
-      const r = 33 * Math.sqrt(i + 0.8);
-      memoryNodes.push({ ...item, score, x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r, radius: st.r, color: st.color, label: st.name });
-    });
-  });
-  memoryClusters = keys.map(k => centers.get(k));
   memoryEdges = explicitMemoryEdges(list);
   const empty = document.getElementById('memGraphEmpty');
-  if (empty) {
-    if (!memoryAll.length) {
-      empty.innerHTML = '<div class="mem-empty"><b>她还没记住什么</b>'
-        + '<span>跟她聊几句——你叫什么、在哪上班、最近在忙什么，她会自己记下来。</span></div>';
-    } else {
-      empty.textContent = list.length ? '' : '这个筛子底下没有记忆';
-    }
-  }
+  if (empty) empty.textContent = memoryAll.length ? (list.length ? '' : '这个筛子底下没有记忆') : '还没有记忆。切到「列表编辑」添加，或在聊天后回来查看。';
   paintGalaxyBar();
   closeMemoryDetail();
   fitMemory();
@@ -275,14 +240,9 @@ function drawMemoryGraph() {
       + '<circle class="halo" r="' + (it.radius * 1.9) + '" fill="' + (it.color || '#8ea0b8') + '" opacity=".16"/>'
       + '<circle class="core-dot" r="' + it.radius + '" stroke="' + (it.color || '#8ea0b8') + '"/>'
       + '<text text-anchor="middle" y="5" fill="' + (it.color || '#8ea0b8') + '">' + (it.label || '记忆') + '</text>'
-      + '<text class="node-caption" text-anchor="middle" y="' + (it.radius + 20) + '">' + esc(String(it.text).slice(0, 7)) + (String(it.text).length > 7 ? '…' : '') + '</text></g>';
+      + '<text class="node-caption" text-anchor="middle" y="' + (it.radius + 20) + '">' + esc(String(it.text).slice(0, 10)) + (String(it.text).length > 10 ? '…' : '') + '</text></g>';
   }).join('');
-  const clustersHtml = (memoryClusters || []).map(c => '<g class="mem-cluster' + (c.isOwner ? ' owner' : '') + '" data-uin="' + esc(String(c.uin || '')) + '" style="cursor:pointer">'
-    + '<circle cx="' + c.x + '" cy="' + c.y + '" r="132" fill="transparent"/>'
-    + (c.isOwner ? '<circle cx="' + c.x + '" cy="' + c.y + '" r="120" fill="none" stroke="#ffd166" stroke-dasharray="6 9" opacity=".5"/>' : '')
-    + '<text class="mem-cluster-label" x="' + c.x + '" y="' + (c.y - 126) + '" text-anchor="middle">'
-    + (c.isOwner ? '👑 ' : '') + esc(String(c.label).slice(0, 14)) + '</text></g>').join('');
-  svg.innerHTML = '<defs><marker id="memoryArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="var(--dim)"/></marker></defs><g transform="translate(' + memoryCamera.x + ',' + memoryCamera.y + ') scale(' + memoryCamera.scale + ')">' + clustersHtml + lines + nodes + '</g>';
+  svg.innerHTML = '<defs><marker id="memoryArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="var(--dim)"/></marker></defs><g transform="translate(' + memoryCamera.x + ',' + memoryCamera.y + ') scale(' + memoryCamera.scale + ')">' + lines + nodes + '</g>';
 }
 function fitMemory() {
   const xs = memoryNodes.map(it => it.x), ys = memoryNodes.map(it => it.y);

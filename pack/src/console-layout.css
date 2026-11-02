@@ -56,18 +56,3 @@ th,tbody tr:hover td,tr:hover td,.dd .mi:hover{background:var(--card2);color:var
 .gtimeline{display:flex;align-items:center;gap:10px;width:100%;font-size:12.5px;padding-top:4px}
 .gtimeline input[type=range]{flex:1;accent-color:var(--acc);min-width:140px}
 .gtimeline b{color:var(--fg);font-weight:600;min-width:56px;text-align:right}
-
-/* ---- 记忆星图：按人分簇 + 主人镀金 ---- */
-.mem-cluster-label{ fill:#cfd8e6; font-size:15px; font-weight:600; letter-spacing:.02em }
-.mem-cluster.owner .mem-cluster-label{ fill:#ffd166 }
-#memGraph svg text.node-caption{ font-size:11px; fill:#93a2b8 }
-#memPeople{ position:absolute; right:14px; top:14px; width:300px; max-height:calc(100% - 28px); overflow:auto; z-index:6 }
-.mem-list{ margin-top:8px; display:flex; flex-direction:column; gap:6px }
-.mem-row{ display:flex; gap:8px; align-items:flex-start; padding:6px 8px; border-radius:8px; background:rgba(255,255,255,.035) }
-.mem-row.stale{ opacity:.5 }
-.mem-txt{ flex:1; font-size:12.5px; line-height:1.5 }
-.mem-kind{ flex:0 0 auto; font-size:11px; padding:1px 6px; border-radius:999px; border:1px solid currentColor; opacity:.85 }
-.mem-kind.k-core{ color:#ffd166 } .mem-kind.k-fact{ color:#5ed3ff }
-.mem-kind.k-important{ color:#c79bff } .mem-kind.k-trivia{ color:#8ea0b8 }
-.mem-empty{ display:flex; flex-direction:column; align-items:center; gap:8px; text-align:center; color:#9fb0c6 }
-.mem-empty b{ font-size:15px; color:#dbe4f0 }
