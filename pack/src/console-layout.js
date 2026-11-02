@@ -244,6 +244,34 @@ function applyMemoryFilter() {
     });
   });
   memoryClusters = keys.map(k => centers.get(k));
+  // 如果有 Codex 写的 canvas 渲染器，就用它画（星尘/辉光/动画），SVG 留着当兜底
+  if (window.MemoryGalaxy) {
+    try {
+      const cv = document.getElementById('memCanvas');
+      const svg = document.getElementById('memGraph');
+      if (cv) {
+        cv.hidden = false;
+        if (svg) svg.style.display = 'none';
+        const idToIdx = new Map();
+        const gnodes = list.map((it, i) => {
+          if (it.id) idToIdx.set(it.id, i);
+          return { index: i, text: String(it.text || ''), kind: it.kind || 'trivia', score: Number(memoryDays ? projectScore(it) : it.score) || 0, group: (it._isOwner ? '👑 ' : '') + String(it._uin || ''), isOwnerGroup: !!it._isOwner };
+        });
+        const gedges = (memoryEdges || []).map(e => ({ from: idToIdx.has(e.from) ? idToIdx.get(e.from) : -1, to: idToIdx.has(e.to) ? idToIdx.get(e.to) : -1, kind: e.kind }))
+          .filter(e => e.from >= 0 && e.to >= 0);
+        if (!window.__galMount) {
+          window.__galMount = true;
+          window.MemoryGalaxy.mount(cv, { nodes: gnodes, edges: gedges, onPick: (n) => { try { inspectMemory(n.index); } catch (e) {} } });
+        } else {
+          window.MemoryGalaxy.update(gnodes, gedges);
+        }
+        return;
+      }
+    } catch (e) { /* 画布挂了就退回 SVG */ }
+  }
+  { const cv = document.getElementById('memCanvas'); if (cv) cv.hidden = true;
+    const svg = document.getElementById('memGraph'); if (svg) svg.style.display = ''; }
+  window.__galNodes = list; window.__galEdges = memoryEdges || [];
   memoryEdges = explicitMemoryEdges(list);
   const empty = document.getElementById('memGraphEmpty');
   if (empty) {
@@ -287,6 +315,7 @@ function drawMemoryGraph() {
   svg.innerHTML = '<defs><marker id="memoryArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="var(--dim)"/></marker></defs><g transform="translate(' + memoryCamera.x + ',' + memoryCamera.y + ') scale(' + memoryCamera.scale + ')">' + clustersHtml + lines + nodes + '</g>';
 }
 function fitMemory() {
+  if (window.__galMount && window.MemoryGalaxy) { try { window.MemoryGalaxy.fit(); return; } catch (e) {} }
   const xs = memoryNodes.map(it => it.x), ys = memoryNodes.map(it => it.y);
   const minX = Math.min(400, ...xs) - 90, maxX = Math.max(600, ...xs) + 90, minY = Math.min(200, ...ys) - 70, maxY = Math.max(400, ...ys) + 90;
   const scale = Math.min(1.6, 1000 / (maxX - minX), 600 / (maxY - minY));
@@ -294,6 +323,7 @@ function fitMemory() {
   drawMemoryGraph();
 }
 function zoomMemory(factor) {
+  if (window.__galMount && window.MemoryGalaxy) { try { window.MemoryGalaxy.zoom(factor); return; } catch (e) {} }
   const scale = Math.max(0.08, Math.min(5, memoryCamera.scale * factor)), ratio = scale / memoryCamera.scale;
   memoryCamera = { scale, x: 500 - (500 - memoryCamera.x) * ratio, y: 300 - (300 - memoryCamera.y) * ratio };
   drawMemoryGraph();

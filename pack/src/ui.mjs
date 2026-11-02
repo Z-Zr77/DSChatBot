@@ -1074,6 +1074,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/') return send(res, 200, HTML.replace('__WK_SCRIPT__', workdialog.bootstrap())
+      .replace('__MEMORY_GALAXY__', () => fs.readFileSync(path.join(SRC_DIR, 'memory-galaxy.js'), 'utf8'))
       .replace('__CONSOLE_LAYOUT__', () => fs.readFileSync(path.join(SRC_DIR, 'console-layout.js'), 'utf8'))
       .replace('__CONSOLE_STYLE__', () => fs.readFileSync(path.join(SRC_DIR, 'console-layout.css'), 'utf8')));
 
@@ -2755,6 +2756,9 @@ __CONSOLE_STYLE__
 </div>
 </main>
 <script>__WK_SCRIPT__</script>
+<script>
+__MEMORY_GALAXY__
+</script>
 <script>
 const $ = (s) => document.querySelector(s);
 __CONSOLE_LAYOUT__

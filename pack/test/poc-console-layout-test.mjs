@@ -104,7 +104,8 @@ try {
     assert.ok((await js('document.querySelector("#logPre").textContent')).includes('[draw] fail')); await screen('02-logs');
   });
   await check('记忆只画明确关系、核心更大、只剩一个 Tab', async () => {
-    await js('goPage("memory"); loadMem()');
+    // 默认走 canvas 星图；这两条用例测的是 SVG 兜底路径，先临时撤掉渲染器
+    await js('window.__galSave = window.MemoryGalaxy; window.MemoryGalaxy = null; window.__galMount = false; goPage("memory"); loadMem()');
     assert.equal(await js('document.querySelectorAll("#memGraph .memory-node").length'), 4);
     assert.equal(await js('document.querySelectorAll("#memGraph [data-edge=correction]").length'), 1);
     assert.equal(await js('document.querySelectorAll("#memGraph [data-edge=cause]").length'), 1);
@@ -116,7 +117,7 @@ try {
     assert.equal(await js('document.querySelector("#memPane").hidden'), false);
     await screen('03-memory');
   });
-  await check('记忆图可缩放、拖动、查看并编辑', async () => {
+  await check('记忆图可缩放、拖动、查看并编辑（SVG 兜底）', async () => {
     const scale = await js('memoryCamera.scale'); await js('zoomMemory(1.25)'); assert.ok(await js('memoryCamera.scale') > scale);
     const x = await js('memoryNodes[0].x');
     const point = await js(`const r = document.querySelector('[data-node="0"] circle').getBoundingClientRect(); ({x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)})`);
@@ -151,6 +152,13 @@ try {
     assert.equal(resolveVision({ model: 'text' }, { model: 'custom' }, 'key').mode, 'custom');
     assert.equal(resolveVision({ model: 'text' }, {}, 'key', false).mode, 'none');
     assert.equal(resolveVision({ model: 'text' }, {}, 'key', true).mode, 'fallback');
+  });
+  await check('记忆页默认用 canvas 星图（SVG 只是兜底）', async () => {
+    await js('window.MemoryGalaxy = window.__galSave; window.__galMount = false; goPage("memory"); loadMem()');
+    assert.equal(await js('!!window.__galMount'), true);
+    assert.equal(await js('document.getElementById("memCanvas").hidden'), false);
+    assert.ok((await js('window.__galNodes.length')) >= 1);
+    await screen('03b-memory-canvas');
   });
   await check('主题预设、圆角密度字体、CSS、导入和刷新持久化', async () => {
     await js('goPage("theme"); chooseTheme("light"); document.querySelector("#themeRadius").value="8"; document.querySelector("#themeDensity").value="compact"; document.querySelector("#themeFont").value="mono"; document.querySelector("#themeCss").value=".brand b { letter-spacing: 3px; }"; saveTheme()');
