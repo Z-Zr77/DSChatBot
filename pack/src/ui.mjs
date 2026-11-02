@@ -1102,6 +1102,50 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, minutes, until });
   }
 
+  // 一键接上：从 SnowLuma 自己的 config/onebot_<uin>.json 里读端口和两个 token。
+  // 用户不该手抄这些东西 —— 之前就是抄错一个 token，401 查了半小时。
+  if (p === '/api/qq/attach' && req.method === 'POST') {
+    try {
+      const setup = loadSetup();
+      const dir = String((setup.snowluma && setup.snowluma.dir) || '');
+      if (!dir) return send(res, 200, { ok: false, err: '先在下面填 SnowLuma 的文件夹（里面要有 launcher.bat）' });
+      const cdir = path.join(dir, 'config');
+      let file = '';
+      try {
+        const cand = fs.readdirSync(cdir).filter((f) => /^onebot_.*\.json$/i.test(f));
+        if (cand.length) file = path.join(cdir, cand[0]);
+      } catch {}
+      if (!file) return send(res, 200, { ok: false, err: '这个文件夹里没有 config/onebot_*.json：SnowLuma 还没登录过，或者文件夹指错了' });
+      let conf = {};
+      try { conf = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return send(res, 200, { ok: false, err: '读不了 ' + path.basename(file) + '：' + String(e.message || e) }); }
+      const nets = conf.networks || {};
+      const ws = (nets.wsServers || [])[0] || {};
+      const http = (nets.httpServers || [])[0] || {};
+      if (!ws.port) return send(res, 200, { ok: false, err: '这个配置里没有开 WS 服务端：去 SnowLuma 面板把 OneBot 的 WS 开起来' });
+      const patch = {
+        qq: { protocol: 'snowluma' },
+        onebot: {
+          wsUrl: '',
+          wsPort: Number(ws.port) || 3001,
+          httpPort: Number(http.port) || 3000,
+          accessToken: String(ws.accessToken || ''),
+          httpToken: String(http.accessToken || ''),
+        },
+      };
+      saveSetup(patch);
+      let restarted = false;
+      try { await fetch('http://127.0.0.1:' + (setup.ui && setup.ui.port || 3070) + '/api/restart', { method: 'POST' }); restarted = true; } catch {}
+      return send(res, 200, {
+        ok: true, restarted,
+        ws: patch.onebot.wsPort, http: patch.onebot.httpPort,
+        hasToken: !!patch.onebot.accessToken,
+        from: path.basename(file),
+      });
+    } catch (e) {
+      return send(res, 500, { ok: false, err: String(e.message || e) });
+    }
+  }
+
   if (p === '/api/qr/refresh' && req.method === 'POST') {
       const setup = (() => { try { return loadSetup(); } catch { return {}; } })();
       const protocol = qqProtocolOf(setup);
@@ -2532,15 +2576,23 @@ __CONSOLE_STYLE__
       <button class="btn" onclick="saveQqClient()">保存协议和路径</button>
     </div>
     <p class="dim" id="qqClientHint" style="margin:8px 0 0"></p>
-    <div class="cfgrpbody" style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
-      <p class="dim" style="margin:0 0 8px">连不上时先看这两个。SnowLuma 的 token 在它的 <code>snowluma-data/config/onebot_*.json</code> 里；NapCat 一般不用填。</p>
-      <div class="row" style="gap:10px">
-        <input id="obUrl" placeholder="ws 地址（留空 = ws://127.0.0.1:3001）" style="flex:1">
-        <input id="obToken" placeholder="access token（可留空）" style="flex:1">
-        <button class="btn ghost" onclick="saveOnebot()">保存连接参数</button>
-      </div>
-      <p class="dim" id="obHint" style="margin:8px 0 0"></p>
+    <div class="row" style="gap:10px;margin-top:12px">
+      <button class="btn" onclick="attachOnebot(this)">一键接上（自动读端口和 token）</button>
+      <span class="dim" id="attachHint">登录之后点这个，不用自己抄 token</span>
     </div>
+    <details class="cfgrp" style="margin-top:10px">
+      <summary>高级：手动填 ws 地址和 token</summary>
+      <div class="cfgrpbody">
+        <p class="dim" style="margin:0 0 8px">一般用不着。SnowLuma 的 token 在它的 <code>config/onebot_*.json</code> 里（ws 和 http 是两个不同的 token）。</p>
+        <div class="row" style="gap:10px">
+          <input id="obUrl" placeholder="ws 地址（留空 = ws://127.0.0.1:3001）" style="flex:1">
+          <input id="obToken" placeholder="ws access token（可留空）" style="flex:1">
+          <input id="obHttpToken" placeholder="http access token（可留空）" style="flex:1">
+          <button class="btn ghost" onclick="saveOnebot()">保存</button>
+        </div>
+        <p class="dim" id="obHint" style="margin:8px 0 0"></p>
+      </div>
+    </details>
   </div>
   <div class="card" id="qqLoginCard">
     <div class="toolbar"><b>登录 QQ</b><span class="spacer"></span><span id="qqLoginStage" class="dim">未开始</span></div>
@@ -3209,16 +3261,35 @@ async function loadQqGuide() {
     const obTok = document.getElementById('obToken');
     if (obUrl && document.activeElement !== obUrl) obUrl.value = (s && s.onebot && s.onebot.wsUrl) || '';
     if (obTok && document.activeElement !== obTok) obTok.value = (s && s.onebot && s.onebot.accessToken) || '';
+    const obH = document.getElementById('obHttpToken');
+    if (obH && document.activeElement !== obH) obH.value = (s && s.onebot && s.onebot.httpToken) || '';
     const sel = document.getElementById('qqProtocol');
     if (sel) sel.value = s && s.protocol === 'snowluma' ? 'snowluma' : 'napcat';
     paintQqGuide();
   } catch (e) {}
 }
+async function attachOnebot(btn){
+  const hint = document.getElementById('attachHint');
+  if (btn) { btn.disabled = true; btn.textContent = '正在接…'; }
+  try {
+    const r = await api('/api/qq/attach', { method: 'POST' });
+    if (!r || !r.ok) throw new Error((r && r.err) || '没接上');
+    if (hint) hint.textContent = '接上了：ws ' + r.ws + ' / http ' + r.http + (r.hasToken ? ' · token 已带入' : '') + '，桥接重启中…';
+    toast('接上了：ws ' + r.ws + ' / http ' + r.http, true);
+    setTimeout(() => location.reload(), 2500);
+  } catch (e) {
+    if (hint) hint.textContent = '没接上：' + (e.message || e);
+    toast('没接上：' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '一键接上（自动读端口和 token）'; }
+  }
+}
+
 async function saveOnebot(){
   const url = (document.getElementById('obUrl') || {}).value || '';
   const tok = (document.getElementById('obToken') || {}).value || '';
   try {
-    await api('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ onebot: { wsUrl: url, accessToken: tok } }) });
+    await api('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ onebot: { wsUrl: url, accessToken: tok, httpToken: (document.getElementById('obHttpToken') || {}).value || '' } }) });
     toast('连接参数已保存；改完要重启桥接才生效', true);
   } catch (e) { toast('保存失败：' + (e.message || e)); }
 }
