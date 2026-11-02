@@ -4341,7 +4341,8 @@ function loadCredentialRefs() {
     }
     log('credential refs loaded:', count);
   } catch (e) {
-    log('credential refs failed:', e.message);
+    // 新机器上没有 ~/.dsh/.credentials.yaml 是正常的，不该在日志里报错
+    if (e && e.code !== 'ENOENT') log('credential refs failed:', e.message);
   }
 }
 

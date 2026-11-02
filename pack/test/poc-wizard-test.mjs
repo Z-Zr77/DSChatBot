@@ -31,7 +31,8 @@ check('POST /api/setup 能存「她叫什么」（不只是 ownerUin）', () => 
 });
 
 check('触发条件：配好了就不弹，没配才弹', () => {
-  assert.ok(/if \(keySet && s && s\.ownerUin\) return;/.test(ui), '触发条件写错了');
+  assert.ok(/\(\(s && s\.introDone\) \|\| keySet\) return;/.test(ui), '触发条件写错了（应看 introDone 或 keySet）');
+  assert.ok(!/keySet && s && s\.ownerUin/.test(ui), '还在拿主人号当门槛：留空就会一直弹');
   assert.ok(/setTimeout\(\(\) => \{ maybeWizard\(\); \}, 600\)/.test(ui), '启动时没调用 maybeWizard');
 });
 
@@ -49,7 +50,8 @@ check('向导只走已有接口，不发明后门', () => {
 
 check('做完了能关掉（否则整页被遮罩挡住）', () => {
   assert.ok(/e\.remove\(\); location\.reload\(\)/.test(ui), '完成后没有关闭遮罩');
-  assert.ok(/\$\('#wzSkip'\)\.onclick = function\(\)\{ box\.remove\(\); goPage\('config'\); \}/.test(ui), '没有「去模型页自己填」的出口');
+  assert.ok(/\$\('#wzSkip'\)\.onclick = async function\(\)\{/.test(ui), '没有「去模型页自己填」的出口');
+  assert.ok(/introDone: true/.test(ui), '跳过时没有落盘 introDone，下次还会弹');
 });
 
 check('地址和模型默认收在「高级」里，做完能去聊天窗', () => {

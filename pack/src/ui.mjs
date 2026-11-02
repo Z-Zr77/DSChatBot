@@ -4,6 +4,8 @@ import * as workdialog from './workdialog.mjs';
 import * as daily from './daily.mjs';
 import * as loops from './loops.mjs';
 import * as life from './life.mjs';
+import * as caps from './caps.mjs';
+import * as qqlogin from './qqlogin.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -785,7 +787,8 @@ async function load(){
   $('#bLogin').style.color=(S.qqLive && S.qqLive.online===false)?'#c08a2e':'';
   const b=S.budget||{};
   { const v=Number(b.today||0), m=Number(b.spent||0); $('#bCost').textContent='¥'+v.toFixed(2)+' / 本月 ¥'+m.toFixed(2) }
-  paintQr(S);
+  // 扫码入口已删（改密码登录），这里不再画二维码；函数留着但没人调。
+  if ($('#qrSlot')) paintQr(S);
   const minds=Array.isArray(S.minds)?S.minds:[];
   const ppl=minds.filter(function(m){ return m && /^[0-9]{5,12}$/.test(String(m.uin||'')) });
   $('#users').innerHTML = ppl.length ? ppl.slice(0,4).map(function(m){
@@ -923,8 +926,7 @@ async function saveGroup(b){
   catch(e){ toast("保存失败：" + e.message, false) }
   finally{ b.disabled = false }
 }
-load(); loadPersona(); loadMem(); loadSet();
-setInterval(()=>{ if($('#t-home').classList.contains('on')) load() }, 5000);
+// 旧 tab 版控制台的启动与轮询已废弃（新版在 loadState / loadCfg 那条线上）
 </script></body></html>`;
 
 function qrToken() {
@@ -1878,6 +1880,7 @@ const server = http.createServer(async (req, res) => {
           dataDir: PATHS.data,
           locFile: PATHS.locFile || '',
           keySet: !!(s.api && s.api.key),
+          introDone: !!(s.intro && s.intro.done),
         });
       }
       const b = await body(req);
@@ -1897,8 +1900,33 @@ const server = http.createServer(async (req, res) => {
         patch.qq.ownerUin = owner; patch.qq.master = owner;
       }
       if (b.name !== undefined) patch.qq.name = String(b.name || '').trim().slice(0, 24);
+      if (b.introDone !== undefined) patch.intro = { ...(s.intro || {}), done: !!b.introDone };
       saveSetup(patch);
       return send(res, 200, { ok: true, ownerUin: patch.qq.ownerUin || '', name: patch.qq.name || '' });
+    }
+
+    // 密码登录：状态与"启动 QQ"
+    if (p === '/api/qq/login/status') {
+      try { return send(res, 200, { ok: true, ...(await qqlogin.status()) }); }
+      catch (e) { return send(res, 200, { ok: false, err: String(e && e.message || e) }); }
+    }
+    if (p === '/api/qq/login/start' && req.method === 'POST') {
+      try {
+        const st = await qqlogin.start();
+        return send(res, 200, { ok: true, ...st, steps: qqlogin.STEPS });
+      } catch (e) {
+        return send(res, 200, { ok: false, err: String(e && e.message || e) });
+      }
+    }
+
+    // 能力探测：五盏灯里"语音/识别"两盏不按配置字段判，按这台机器真能不能跑。
+    if (p === '/api/caps') {
+      try {
+        const r = await caps.caps(settings.load());
+        return send(res, 200, r);
+      } catch (e) {
+        return send(res, 200, { err: String(e && e.message || e) });
+      }
     }
 
     if (p === '/api/open-wizard' && req.method === 'POST') {
@@ -2468,6 +2496,7 @@ __CONSOLE_STYLE__
 </section>
 
 <section id="qq">
+  <p class="dim" id="qqOwnerHint" style="display:none;margin:0 0 10px">还没有填「你的 QQ」：现在聊天记录挂在 local 这个身份下，她认得的是"本地窗口里的你"。填上之后才分得清谁是谁。 <a href="javascript:void 0" data-p="qqOwner" onclick="document.getElementById('ownerInput')&&document.getElementById('ownerInput').focus()" style="color:#7fb2ff">去填</a></p>
   <div class="card" id="qqGuide">
     <div class="toolbar"><b>从零接上 QQ</b></div>
     <p class="dim" style="margin:6px 0 10px">不接 QQ 也能在这台电脑上跟她聊。要接的话，先选一种协议端（负责登录 QQ 的小软件），再按下面的步骤做。两种不要同时开。</p>
@@ -2485,18 +2514,22 @@ __CONSOLE_STYLE__
     </div>
     <p class="dim" id="qqClientHint" style="margin:8px 0 0"></p>
   </div>
-  <div class="card scan-entry" id="scanEntry">
-    <button class="btn scan-button" onclick="showQqScan()">扫码登录 QQ</button>
-    <button class="ghost" onclick="openQqWizard()">QQ 接入向导</button>
-    <button class="ghost" id="qrPin" aria-pressed="false" onclick="toggleQrPin()">固定扫码入口</button>
-    <span id="qqSummary" class="dim"></span>
+  <div class="card" id="qqLoginCard">
+    <div class="toolbar"><b>登录 QQ</b><span class="spacer"></span><span id="qqLoginStage" class="dim">未开始</span></div>
+    <p class="dim" style="margin:6px 0 10px">不用扫码。登录发生在 QQ 自己的窗口里（它就是这个小号的真客户端），我们只负责把它拉起来、盯着结果。</p>
+    <ol id="qqLoginSteps" class="dim" style="margin:0 0 12px 18px;line-height:1.9"></ol>
+    <div class="row" style="gap:10px">
+      <button class="btn" onclick="qqLoginStart(this)">启动 QQ，去登录</button>
+      <button class="ghost" onclick="qqLoginRefresh()">我已登录好，检查一下</button>
+      <span class="dim" id="qqLoginMsg"></span>
+    </div>
+    <p class="dim" style="margin:10px 0 0">密码不经过我们，也不会存到任何文件里——存在 QQ 客户端自己那儿。下次开机会自动登录。</p>
   </div>
-  <div id="qrSlot"></div>
   <div id="statusBox"></div>
   <div class="card" style="margin-top:14px">
     <div class="row" style="justify-content:space-between"><b>你的 QQ（主人号）</b>
       <button class="btn" onclick="saveOwner()">保存</button></div>
-    <div class="dim" style="margin:6px 0 8px">填你自己平时用的号，不是上面扫码登录的那个小号。只有这个号能让她动电脑、看她的记忆。两个号不要填成同一个。</div>
+    <div class="dim" style="margin:6px 0 8px">填你自己平时用的号，不是上面登录的那个小号。只有这个号能让她动电脑、看她的记忆。两个号不要填成同一个。</div>
     <div class="row" style="gap:10px">
       <input id="ownerInput" inputmode="numeric" placeholder="例如 123456789" style="max-width:260px">
       <span class="dim" id="ownerHint"></span>
@@ -2635,7 +2668,7 @@ const $ = (s) => document.querySelector(s);
 __CONSOLE_LAYOUT__
 const PG = {
   overview: ['她', '她现在在干什么、最近说了什么、怎么跟她说句话'],
-  qq: ['QQ', '扫码登录、掉线原因、要不要重启桥接'],
+  qq: ['QQ', '登录 QQ、掉线原因、要不要重启桥接'],
   log: ['日志', '最近发生的事与运行记录 —— 她没回你的时候来这儿看'],
   her: ['人设', '人物形象、人格提示词、表情包；她记得的事也在这里'],
   memory: ['记忆', '她记住的人、事、约定'],
@@ -2645,12 +2678,12 @@ const PG = {
 };
 const PAGE_LOAD = {
   overview: () => { loadState(); loadRecent(); },
-  qq: () => { loadState(); loadQqGuide(); },
+  qq: () => { loadState(); loadQqGuide(); paintOwnerHint(); qqLoginPaintSteps(); qqLoginRefresh(); },
   log: () => { loadLog(); loadRecent(); },
   her: () => { loadPersona(); loadSelf(); loadStickers(); },
   memory: () => loadMem(),
   money: () => loadBudget(),
-  config: () => { loadCfg(); loadInterests(); },
+  config: () => { loadCfg(); loadInterests(); refreshCaps(); },
   theme: () => loadThemeForm()
 };
 const ALIAS = { status: 'overview', persona: 'her', stickers: 'her', interests: 'config', budget: 'money', groups: 'config', settings: 'config' };
@@ -3063,7 +3096,10 @@ async function loadState(){
     + '</div>'
     ;
   $('#kernelLog').textContent = (S.kernel || []).slice().reverse().join('\n') || '暂无 QQ 内核日志';
-  $('#qqSummary').textContent = l ? 'QQ 已登录' : (S.qqEnabled === false ? 'QQ 接入未开启' : '等待扫码');
+  // qqSummary 随扫码入口一起下线了（改密码登录）：有就写，没有就跳过。
+  // 少了这层保护，loadState 会在 "Cannot set properties of null" 上直接中断，
+  // 后面的卡片全都不渲染——控制台看起来像白屏。
+  { const qs = $('#qqSummary'); if (qs) qs.textContent = l ? 'QQ 已登录' : (S.qqEnabled === false ? 'QQ 接入未开启' : '未登录'); }
   paintQr(S, l);
   paintOwnerField();
   try {
@@ -3103,7 +3139,7 @@ function qqGuideHtml(protocol) {
       + '<li><b>先装电脑版 QQ。</b>到 <a href="https://im.qq.com/pcqq" target="_blank" rel="noopener">QQ 官网</a> 下载安装。建议另开一个小号给她登录，不要用你平时聊天的大号。</li>'
       + '<li><b>下载 SnowLuma 并解压。</b>到 <a href="https://github.com/SnowLuma/SnowLuma/releases" target="_blank" rel="noopener">SnowLuma 的发布页</a> 下完整包（文件名里带 win-x64 或 linux-x64，不要下带 lite 的，除非电脑里已经有 Node.js 22 以上）。解压到一个找得到的地方。</li>'
       + '<li><b>把文件夹指过来。</b>打开解压出来的文件夹，Windows 里要能看到 launcher.bat，Linux 是 launcher.sh。把这一层的路径填到下面，点「保存协议和路径」。不要填到上一层，也不要填进里面的子文件夹。</li>'
-      + '<li><b>用它自己的页面登录。</b>保存路径后点「扫码登录 QQ」，这里会尝试拉起 launcher。浏览器打开 <code>http://127.0.0.1:5099</code>（也可点本页「打开登录页」），密码在启动时那个黑窗口里。按网页上的提示把 QQ 接上并扫码。登录码在这个网页里，不会出现在本页的二维码框。</li>'
+      + '<li><b>用它自己的页面登录。</b>保存路径后点「启动 QQ，去登录」，这里会尝试拉起 launcher。浏览器打开 <code>http://127.0.0.1:5099</code>（也可点本页「打开登录页」），密码在启动时那个黑窗口里。在那个网页里用账号密码登录（QQ 自带的登录页），之后本页的状态会变成「已登录」。</li>'
       + '<li><b>填你自己的 QQ 号。</b>扫码的是她用的小号。往下翻到「你的 QQ（主人号）」，填你自己的号。两个号不要相同。</li>'
       + '</ol>'
       + '<p style="margin:8px 0 0">一直没有码：先确认文件夹里有 launcher、点过扫码或手动跑过 launcher、5099 那个网页打得开，扫的是网页上的码。</p>';
@@ -3112,10 +3148,10 @@ function qqGuideHtml(protocol) {
     + '<li><b>先装电脑版 QQ。</b>到 <a href="https://im.qq.com/pcqq" target="_blank" rel="noopener">QQ 官网</a> 下载安装。建议另开一个小号给她登录，不要用你平时聊天的大号。</li>'
     + '<li><b>下载 NapCat 并解压。</b>NapCat 是免费的小软件，负责帮这里连上 QQ。到 <a href="https://github.com/NapNeko/NapCatQQ/releases" target="_blank" rel="noopener">NapCat 的发布页</a> 下载带 Shell 的压缩包，解压到一个找得到的地方。</li>'
     + '<li><b>把文件夹指过来。</b>打开解压出来的文件夹，确认这一层里有 launcher.bat（Windows）。把这一层的路径填到下面，点「保存协议和路径」。不要填到上一层，也不要填进 cache。</li>'
-    + '<li><b>出码，用另一部手机扫。</b>点这一页的「扫码登录 QQ」。码出来后，用另一部手机上的 QQ（切到小号）来扫，并在手机上点「确认登录」。同一部手机扫不了自己屏幕上的码。</li>'
+    + '<li><b>登录。</b>点「启动 QQ，去登录」，屏幕上会开一个 QQ 登录窗口——在它左下角点「账号密码登录」，输入小号账号密码，勾上「记住密码」；手机弹「是否本人登录」就点「是我本人」。</li>'
     + '<li><b>填你自己的 QQ 号。</b>扫码的是她用的小号。往下翻到「你的 QQ（主人号）」，填你自己的号。两个号不要相同。</li>'
     + '</ol>'
-    + '<p style="margin:8px 0 0">一直没有码：多半是第 3 步的文件夹不对，或者 NapCat 还没跑起来。打开那个文件夹看有没有 launcher.bat；没有就退回上一层，或重新解压。改完路径要点保存，再点「扫码登录 QQ」，或点二维码上的「立即换一张」。QQ 电脑版也要先装好。还不行就点「QQ 接入向导」，它会检查 QQ 和这个文件夹。</p>';
+    + '<p style="margin:8px 0 0">一直拉不起来：多半是第 3 步的文件夹不对，或者 NapCat 没跑起来。打开那个文件夹看有没有 launcher.bat；没有就退回上一层，或重新解压。改完路径要点保存，再点「启动 QQ，去登录」。QQ 电脑版也要先装好。还不行就点「QQ 接入向导」，它会检查 QQ 和这个文件夹。</p>';
 }
 function paintQqGuide() {
   const sel = document.getElementById('qqProtocol');
@@ -3130,10 +3166,10 @@ function paintQqGuide() {
   const ready = protocol === 'snowluma' ? !!(S && S.snowlumaReady) : !!(S && S.napcatReady);
   if (protocol === 'snowluma') {
     hint.textContent = ready
-      ? '已认出 SnowLuma 文件夹。保存后点「扫码登录 QQ」会尝试拉起 launcher；登录码在 http://127.0.0.1:5099 ，本页不会显示二维码图。'
-      : '保存后会检查这个文件夹是否有 launcher。点「扫码登录 QQ」会尝试拉起；登录请打开 http://127.0.0.1:5099 。';
+      ? '已认出 SnowLuma 文件夹。保存后点「启动 QQ，去登录」会尝试拉起 launcher；如果它自带登录页，去 http://127.0.0.1:5099 用账号密码登。'
+      : '保存后会检查这个文件夹是否有 launcher。点「启动 QQ，去登录」会尝试拉起；登录请打开 http://127.0.0.1:5099 。';
   } else {
-    hint.textContent = '保存后，本页会到这个文件夹里找 launcher.bat。找不到就不会出二维码。';
+    hint.textContent = '保存后，本页会到这个文件夹里找 launcher.bat。找不到就拉不起内核，也就没法登录。';
   }
 }
 async function loadQqGuide() {
@@ -3167,11 +3203,11 @@ function qqNoQrHelp(S) {
     return '<div>SnowLuma 的登录码在网页 <b>http://127.0.0.1:5099</b>，不会出现在本页二维码框。'
       + where
       + (ready ? '文件夹看起来对。' : '文件夹还不像 SnowLuma（缺 launcher）。')
-      + (web ? '登录页现在打得开。' : '登录页暂时还没通，可点「扫码登录 QQ」让这里试着拉起，或自己先跑 launcher。')
+      + (web ? '登录页现在打得开。' : '登录页暂时还没通，可点「启动 QQ，去登录」让这里试着拉起，或自己先跑 launcher。')
       + ' <a href="http://127.0.0.1:5099" target="_blank" rel="noopener">打开登录页</a></div>';
   }
   return '<div>还没有二维码。按顺序检查：电脑版 QQ 装了没有；NapCat 解压了没有；下面的路径是不是「能看见 launcher.bat」的那一层。'
-    + where + '改完要点「保存协议和路径」，再点「扫码登录 QQ」或右上「立即换一张」。同一部手机扫不了自己屏幕上的码，要用另一部手机的小号扫。你自己的号填在再下面的「主人号」。</div>';
+    + where + '改完要点「保存协议和路径」，再点「启动 QQ，去登录」。你自己的号填在再下面的「主人号」。</div>';
 }
 async function saveOwner(){
   const v = String(($('#ownerInput') || {}).value || '').trim();
@@ -3235,7 +3271,10 @@ async function openQqWizard(){
   } catch (e) { toast('向导没打开：' + String((e && e.message) || e), false); }
 }
 function paintQr(S, l){
+  // 扫码入口已下线（0.7.8 改密码登录）：容器不在了就直接返回，
+  // 否则 loadState 会在这里抛 null，整页后面的卡片都画不出来。
   const slot = $('#qrSlot');
+  if (!slot) return;
   slot.hidden = !__qrOpen;
   if (S && S.qqEnabled === false) { slot.innerHTML = '<div class="card">'
       + '<div class="toolbar"><b>扫码登录 QQ</b><span class="pill">已关闭</span><span class="spacer"></span>'
@@ -3823,15 +3862,15 @@ async function loadCfg(){
   $('#cfgBox').innerHTML = '<div class="row" style="justify-content:space-between"><b>设置</b><span><span class="dim" id="cfgMsg" style="margin-right:10px"></span><button class="ghost" onclick="restartBridgeClick()">重启桥接</button><button class="btn" onclick="saveCfg()">保存</button></span></div>'
     + '<p class="dim">改完点保存就生效，不用退出程序。只有换模型供应商这类情况才需要点「重启桥接」。</p>'
     + (function lamps(){
-        const row = (label, ok, what, target) => '<div class="row" style="justify-content:space-between;margin:6px 0">'
+        const row = (label, ok, what, target, id) => '<div class="row" id="' + (id || '') + '" style="justify-content:space-between;margin:6px 0">'
           + '<span>' + label + '</span>'
           + '<span class="' + (ok ? 'ok' : 'bad') + '" style="margin-left:auto">' + (ok ? '✓ ' : '✗ ') + what + '</span>'
           + '<a href="javascript:void 0" data-g="' + target + '" onclick="openCfgGroup(this.dataset.g)" style="margin-left:14px;color:#7fb2ff">' + (ok ? '改' : '去配') + '</a></div>';
         return '<div class="card" style="margin-bottom:18px"><b>五类能力</b>'
           + '<div class="dim" style="margin:6px 0 10px">灯绿了就能用；红了点右边去配。其余设置都收在下面，用不着可以不管。</div>'
           + row('大脑（说话）', !!(br && br.keySet), (br && br.model) || '没配', 'gBrain')
-          + row('语音（发语音条）', !!(c.tts && (c.tts.key || c.tts.voiceId)), (c.tts && (c.tts.model || c.voiceName || c.voice)) || '没配', 'gMedia')
-          + row('语音识别（听你说）', !!(c.asr && (c.asr.key || c.asr.provider)), (c.asr && (c.asr.model || c.asr.provider)) || '没配', 'gMedia')
+          + row('语音（发语音条）', !!(c.tts && (c.tts.key || c.tts.voiceId)), (c.tts && (c.tts.model || c.voiceName || c.voice)) || '没配', 'gMedia', 'lampTts')
+          + row('语音识别（听你说）', !!(c.asr && (c.asr.key || c.asr.provider)), (c.asr && (c.asr.model || c.asr.provider)) || '没配', 'gMedia', 'lampAsr')
           + row('画图（她画画）', !!(c.draw && c.draw.keySet !== false && (c.draw && c.draw.key)), (dInfo && dInfo.model) || '没配', 'gMedia')
           + row('看图（她看照片）', !!(dInfo && dInfo.hasRef) || !!((c.vision && c.vision.key)) || !!(vi && (vi.aliok || vi.brainOk)), (dInfo && dInfo.refModel) || '能看', 'gMedia')
           + '</div>';
@@ -4255,6 +4294,76 @@ async function resetBudget(){
   loadBudget();
 }
 
+// 密码登录：把三步写给人看，并盯着"内核 → QQ 窗口 → 已登录"三个阶段。
+const QQ_STAGE_TXT = { idle: '未开始', booting: '内核已起，等 QQ 窗口', waiting: 'QQ 开着，等你登录', online: '已登录' };
+async function qqLoginRefresh(){
+  try {
+    const st = await api('/api/qq/login/status').catch(function(){ return null; });
+    const el = document.getElementById('qqLoginStage');
+    if (el && st && st.ok) {
+      el.textContent = QQ_STAGE_TXT[st.stage] || st.stage;
+      el.className = st.stage === 'online' ? 'ok' : 'dim';
+    }
+    return st;
+  } catch (e) { return null; }
+}
+async function qqLoginStart(btn){
+  const msg = document.getElementById('qqLoginMsg');
+  if (btn) { btn.disabled = true; btn.textContent = '正在拉起…'; }
+  if (msg) msg.textContent = '';
+  try {
+    const r = await api('/api/qq/login/start', { method: 'POST' }).catch(function(e){ return { ok:false, err:String(e.message||e) }; });
+    if (r && r.ok === false) { if (msg) msg.textContent = r.err || '拉不起来'; }
+    else if (msg) msg.textContent = 'QQ 窗口应该在屏幕上了，去那儿点「账号密码登录」';
+  } catch (e) { if (msg) msg.textContent = String(e.message || e); }
+  if (btn) { btn.disabled = false; btn.textContent = '启动 QQ，去登录'; }
+  qqLoginRefresh();
+}
+function qqLoginPaintSteps(){
+  const box = document.getElementById('qqLoginSteps');
+  if (!box || box.childElementCount) return;
+  const steps = [
+    '点「启动 QQ，去登录」，屏幕上会开一个 QQ 登录窗口。',
+    '在那个窗口左下角点「账号密码登录」，输入小号的 QQ 号和密码，勾上「记住密码」。',
+    '手机 QQ 如果弹「是否本人登录」，点「是我本人」。',
+  ];
+  box.innerHTML = steps.map(function(t){ return '<li>' + t + '</li>'; }).join('');
+}
+
+// 没填主人号时，QQ 页顶部常驻一行提示——不然"她把你记成 local"这件事用户永远不知道。
+async function paintOwnerHint(){
+  try {
+    const el = document.getElementById('qqOwnerHint');
+    if (!el) return;
+    const su = await api('/api/setup').catch(function(){ return null; });
+    const has = !!(su && String(su.ownerUin || '').trim());
+    el.style.display = has ? 'none' : '';
+  } catch (e) {}
+}
+
+// 五盏灯里的语音/识别：先按配置画，随后拿真实探测结果更正。
+// 起因：全新机器上没配语音，灯却是绿的；她真去发语音时报 edge-tts 9009（没有 Python）。
+async function refreshCaps(){
+  try {
+    const r = await api('/api/caps').catch(function(){ return null; });
+    if (!r || r.err) return;
+    const paint = function(id, st){
+      const el = document.getElementById(id);
+      if (!el || !st) return;
+      const span = el.querySelector('span:nth-child(2)');
+      const link = el.querySelector('a');
+      if (span) {
+        span.className = st.ok ? 'ok' : 'bad';
+        span.textContent = (st.ok ? '✓ ' : '✗ ') + (st.label || '');
+        span.title = st.why || '';
+      }
+      if (link) link.textContent = st.ok ? '改' : '去配';
+    };
+    paint('lampTts', r.tts);
+    paint('lampAsr', r.asr);
+  } catch (e) {}
+}
+
 // ===== 第一次见面（向导）=====
 // 只在「没有 API Key」或「还没填你是谁」时出现一次，做完就不再打扰。
 function wzEl(){ return $('#wz'); }
@@ -4265,7 +4374,9 @@ async function maybeWizard(){
     const s = await api('/api/setup');
     const b = await api('/api/brain').catch(function(){ return null; });
     const keySet = !!(s && s.keySet) || !!(b && b.keySet);
-    if (keySet && s && s.ownerUin) return;
+    // 主人号可以留空（卡片上就写着可以留空），所以不拿它当门槛。
+    // 以前的 bug：留空时这张卡每次打开都弹回来。
+    if ((s && s.introDone) || keySet) return;
     const name0 = (s && s.name) ? s.name : '大肥鱼';
     const uin0 = (s && s.ownerUin) ? s.ownerUin : '';
     const box = document.createElement('div');
@@ -4286,7 +4397,12 @@ async function maybeWizard(){
       + '  <div id="wzLog" class="wz-log"></div>'
       + '</div>';
     document.body.appendChild(box);
-    $('#wzSkip').onclick = function(){ box.remove(); goPage('config'); };
+    $('#wzSkip').onclick = async function(){
+      box.remove();
+      // 跳过也要落盘：不然下次打开控制台，这张卡又弹回来（全新机器实测过一次）。
+      try { await api('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ introDone: true }) }); } catch (e) {}
+      goPage('config');
+    };
     $('#wzGo').onclick = wzSave;
     setTimeout(function(){ try { $('#wzName').focus(); } catch (e) {} }, 100);
   } catch (e) {}
@@ -4314,7 +4430,7 @@ async function wzSave(){
   if (go) { go.disabled = true; go.textContent = '正在保存…'; }
   wzLine('保存中…');
   try {
-    const rs = await api('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, ownerUin: uin }) });
+    const rs = await api('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, ownerUin: uin, introDone: true }) });
     if (rs && rs.ok === false) throw new Error(rs.err || '保存失败');
     const rb = await api('/api/brain', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baseUrl: baseUrl, model: model, key: key }) });
     if (rb && rb.ok === false) throw new Error(rb.err || '保存失败');
@@ -4364,6 +4480,7 @@ async function wzSave(){
 }
 
 loadState(); loadRecent(); loadPersona(); loadSelf(); loadCfg();
+setTimeout(function(){ refreshCaps(); paintOwnerHint(); qqLoginPaintSteps(); qqLoginRefresh(); }, 800);
 setTimeout(() => { maybeWizard(); }, 600);
 setTimeout(() => { loadQqGuide(); }, 600);
 setInterval(() => { if ($('#overview') && $('#overview').classList.contains('on')) { loadState(); loadRecent(); } }, 15000);

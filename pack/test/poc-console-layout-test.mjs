@@ -85,16 +85,17 @@ try {
     assert.deepEqual(await js('[...document.querySelectorAll("nav button")].map(b => b.dataset.t)'), ['overview', 'qq', 'log', 'her', 'money', 'config']);
     assert.equal(await js('getComputedStyle(document.querySelector("nav button.on")).backgroundColor'), 'rgb(52, 120, 246)');
     // 「让她动电脑」不再挤在第一屏：它跟自检/备份/授权码一起收在「模型 → 更多」里
-    assert.equal(await js('document.querySelector("#sToolsBtn").closest("section").id'), 'config');
+    assert.equal(await js('!!document.querySelector("#config #sToolsBtn")'), true, '「允许她动电脑」应当在模型页');
     await js('toggleWorkTools()'); assert.equal(toolsEnabled, true);
     await js('toggleWorkTools()'); assert.equal(toolsEnabled, false);
     await screen('01-overview');
   });
-  await check('扫码入口固定状态在刷新后保留', async () => {
-    await js('toggleQrPin()'); win.reload(); await waitFor('document.querySelector("#sToolsBtn")');
-    assert.equal(await js('document.querySelector("#qrPin").getAttribute("aria-pressed")'), 'true');
-    await js('showQqScan()'); assert.equal(await js('document.querySelector("#qrSlot").hidden'), false);
+  await check('QQ 页是密码登录卡，没有扫码入口', async () => {
+    assert.equal(await js('!!document.querySelector("#qqLoginCard")'), true, '没有密码登录卡');
+    assert.equal(await js('!!document.querySelector("#qrPin")'), false, '扫码固定入口还在');
+    assert.equal(await js('!!document.querySelector("#scanEntry")'), false, '扫码入口卡还在');
   });
+
   await check('概览短摘要与独立日志页可刷新', async () => {
     await js('loadRecent()'); assert.ok((await js('document.querySelector("#recentSummary").textContent')).includes('出现问题'));
     await js('goPage("log"); loadLog()'); assert.equal(await js('document.querySelector("section.on").id'), 'log');

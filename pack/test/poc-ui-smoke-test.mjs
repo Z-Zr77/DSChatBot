@@ -48,7 +48,11 @@ function audit(label, html) {
   if (dynIds.size) {
     check(label + '：动态生成的 id 有对应的生成函数', /function\s+providerOptions\s*\(/.test(html), '调用了 providerOptions 但没定义');
   }
-  const hardNoEl = noEl.filter((id) => !dynIds.has(id) && /^(wk|br|s[A-Z]|btn|work|perm|mem|log|qr|upd|cfg|owner|dv|ig)/.test(id));
+  // 已下线功能：扫码登录改密码登录（0.7.8），页面里不再有这些容器。
+  // 代码里还留着旧函数体，但只要确认"功能确实没了"，就不该按缺元素报错。
+  const RETIRED = new Set(['qrSlot', 'qrPin', 'qrCard', 'qrc', 'scanEntry', 'qqSummary']);
+  const hardNoEl = noEl.filter((id) => !dynIds.has(id) && !RETIRED.has(id)
+    && /^(wk|br|s[A-Z]|btn|work|perm|mem|log|qr|upd|cfg|owner|dv|ig)/.test(id));
   check(label + '：脚本引用的 id 都在页面里', hardNoEl.length === 0, '找不到元素：' + hardNoEl.join(','));
 
   check(label + '：页面上没有裸 undefined', !/>\s*undefined\s*</.test(html) && !/undefined<\/div>/.test(html), '页面里出现了 undefined 文本');
