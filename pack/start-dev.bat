@@ -15,7 +15,8 @@ if errorlevel 1 (
 echo Node:
 node -v
 echo.
-echo First run will open the setup wizard in your browser.
+echo First run opens the console. The first-meet card is there.
+echo The QQ / NapCat wizard does not open on startup.
 echo Press Ctrl+C to stop.
 echo.
 node launch.mjs

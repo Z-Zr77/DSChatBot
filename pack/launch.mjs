@@ -1,4 +1,5 @@
-// 启动器：首次运行走向导 → 写配置 → 起 UI + 桥接。
+// 启动器：先起控制台、桥接和聊天窗。第一次见面在控制台里做。
+// QQ / NapCat 向导不自动开，除非显式 QQBOT_WIZARD_ONLY=1。
 // 开发模式（系统 node）：node launch.mjs
 // 打包后（Electron）：由 electron/main.cjs 在主进程内 import 并调用 startAll()
 import http from 'node:http';
@@ -465,7 +466,7 @@ export { scanEnv, blockersOf, installNapCat, canWrite, findLauncher, findNapCat,
   let skipped = false;
   // 首次运行不再卡在向导上：先把控制台/桥接/聊天窗起起来，引导放到控制台里做
   if (!isConfigured()) {
-    log('首次运行：还没填模型密钥或 QQ 小号，先起界面，去控制台「设置」里填');
+    log('首次运行：还没配齐，先起控制台。第一次见面在控制台里做，QQ 向导不抢这一屏');
     if (process.env.QQBOT_WIZARD_ONLY === '1') { await startWizard(); return; }
   }
   seedDefaults(s);

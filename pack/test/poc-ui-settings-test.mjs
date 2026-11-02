@@ -32,6 +32,33 @@ check('面板那份叫 saveBrainCfgBox 且读 br*', /async function saveBrainCfg
 }
 check('状态里带 napcatReady', /napcatReady:\s*ncReady/.test(src));
 check('没装内核时给安装引导', /function napcatGuide\(S\)/.test(src) && /NapCatQQ\/releases/.test(src));
+{
+  const brain = src.slice(src.indexOf('id="gBrain"'), src.indexOf('id="gMedia"'));
+  const seq = ["providerOptions('brProvider'", 'id="brKey"', "customUrlBlock('brUrlAdv'", 'id="brUrl"', 'id="brModel"'];
+  let at = -1; let brainOk = src.includes('<summary>自定义接口地址</summary>');
+  for (const token of seq) {
+    const i = brain.indexOf(token);
+    if (i < 0 || i <= at) brainOk = false;
+    at = i;
+  }
+  check('大脑顺序：供应商 → Key → 自定义地址 → 模型', brainOk);
+  const media = src.slice(src.indexOf('id="gMedia"'), src.indexOf('id="gAuto"'));
+  const rows = [
+    ['data-p="tts.provider"', 'data-p="tts.key"', 'data-p="tts.baseUrl"', 'data-p="tts.model"'],
+    ['data-p="asr.provider"', 'data-p="asr.key"', 'data-p="asr.baseUrl"', 'data-p="asr.model"'],
+    ['data-p="draw.provider"', 'data-p="draw.key"', 'data-p="draw.baseUrl"', 'data-p="draw.model"'],
+    ["providerOptions('viProvider'", 'data-p="vision.key"', 'data-p="vision.baseUrl"', 'data-p="vision.model"'],
+  ];
+  for (const row of rows) {
+    let pos = -1; let ok = true;
+    for (const token of row) {
+      const i = media.indexOf(token);
+      if (i < 0 || i <= pos) ok = false;
+      pos = i;
+    }
+    check('模型页顺序 ' + row[0], ok);
+  }
+}
 
 let child = null;
 try {

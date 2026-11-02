@@ -5,7 +5,7 @@ import { loadSetup } from './paths.mjs';
 
 export async function ask(content, _sessionId, opts = {}) {
   const s = loadSetup();
-  if (!s.api.key) return { ok: false, text: '', err: 'no api key: 先在向导里填 API Key' };
+  if (!s.api.key) return { ok: false, text: '', err: 'no api key: 去控制台「模型」页或第一次见面填 API Key' };
   const base = String(s.api.baseUrl || '').replace(/\/+$/, '');
   const url = /\/chat\/completions$/.test(base) ? base : `${base}/chat/completions`;
   const sys = String(opts.system || '').trim();

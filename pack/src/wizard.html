@@ -94,15 +94,6 @@ a{color:var(--acc);text-decoration:none}
     </div>
   </div>
 
-  <div class="card">
-    <h2>关系/身份</h2>
-    <p class="tip">选择相处身份，保存到人设；其他人格内容可以在控制台继续编辑。</p>
-    <div class="row">
-      <select id="relationship" aria-label="关系/身份"><option>女友</option><option>老婆</option><option>朋友</option><option>自定义</option></select>
-      <input type="text" id="relationshipCustom" maxlength="40" placeholder="选择自定义时填写身份" aria-label="自定义身份">
-    </div>
-  </div>
-
   <div class="foot">
     <div class="meta">
       <span data-i18n="foot.dataLabel">数据目录</span>：<span id="dataDir">—</span>
@@ -235,9 +226,7 @@ async function save() {
   $('btnSave').disabled = true;
   $('footMsg').className = 'msg';
   $('footMsg').textContent = t('msg.saving');
-  const relationship = $('relationship').value === '自定义' ? $('relationshipCustom').value.trim() : $('relationship').value;
-  if (!relationship) { $('btnSave').disabled = false; $('footMsg').textContent = '请填写自定义身份'; return; }
-  const payload = { qq: { uin: $('uin').value.trim(), relationship }, napcat: { dir: $('napcatDir').value.trim() } };
+  const payload = { qq: { uin: $('uin').value.trim() }, napcat: { dir: $('napcatDir').value.trim() } };
   const r = await post('/api/save', payload);
   if (!r.ok) {
     $('btnSave').disabled = false;
@@ -250,12 +239,6 @@ async function save() {
   finish(false);
 }
 async function finish(skip) {
-  if (skip) {
-    const relationship = $('relationship').value === '自定义' ? $('relationshipCustom').value.trim() : $('relationship').value;
-    if (!relationship) { $('footMsg').textContent = '请填写自定义身份'; return; }
-    const r = await post('/api/save', { qq: { relationship } });
-    if (!r.ok) { $('footMsg').textContent = r.err || '保存失败'; return; }
-  }
   const done = gotoConsole();
   try { await post('/api/finish', { skip: skip ? 1 : 0 }); } catch (e) {}
   await done;
@@ -279,10 +262,7 @@ $('napcatDir').addEventListener('input', (e) => { e.target.dataset.touched = '1'
 
 (async () => {
   applyLang();
-  try { const st = await get('/api/state'); if (st.dataDir) $('dataDir').textContent = st.dataDir;
-    const relationship = st.setup?.qq?.relationship || '女友';
-    $('relationship').value = ['女友', '老婆', '朋友'].includes(relationship) ? relationship : '自定义';
-    $('relationshipCustom').value = $('relationship').value === '自定义' ? relationship : ''; } catch (e) {}
+  try { const st = await get('/api/state'); if (st.dataDir) $('dataDir').textContent = st.dataDir; } catch (e) {}
   rescan();
   setInterval(rescan, 3000);
   setInterval(() => { if ($('qrbox').style.display !== 'none') $('qr').src = '/qr.png?t=' + Date.now(); }, 5000);
