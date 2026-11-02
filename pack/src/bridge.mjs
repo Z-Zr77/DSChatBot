@@ -140,6 +140,9 @@ function photoRule(conv) {
 
 function groupTone(conv) {
   const owner = String(cfg.ownerUin || '');
+  // 还没填主人号（全新安装）：窗口里/私聊里说话的这个人就是主人。
+  // 不然她会把唯一的用户当成"别人找来搭话的陌生人"，一开口就顶人。
+  if (!owner && conv.kind !== 'group') return '';
   const speaker = conv.kind === 'group' ? conv.speaker : conv.id;
   const isOwner = owner && String(speaker || '') === owner;
   const lv = Number(settings.load().groups?.spicy ?? 2);
@@ -157,6 +160,7 @@ function groupTone(conv) {
 const INTIMATE_RE = /(宝宝|宝子|宝贝|亲爱的|亲亲|老婆|老公|媳妇|小可爱|小宝贝|达令|honey|甜心|乖乖|小狗|小猫(?!咪?叫)|我的(?:人|宝)|抱抱|亲一个)/i;
 function intimateTone(conv, body) {
   const owner = String(cfg.ownerUin || '');
+  if (!owner && conv.kind !== 'group') return '';   // 同上：没配主人号时他就是主人
   const speaker = conv.kind === 'group' ? conv.speaker : conv.id;
   if (owner && String(speaker || '') === owner) return '';
   if (!INTIMATE_RE.test(String(body || ''))) return '';
@@ -3105,9 +3109,12 @@ function queueReply(key, conv, line, rawText, opts = {}) {
   // 新人刚装好，发第一句"在吗"就被抽到"15 分钟后回"或者"这次不回"，会以为程序坏了。
   if (!buf.firstChecked) {
     buf.firstChecked = true;
-    try { buf.neverSpoke = !chatlog.recent(conv.id, 40).some(r => r && r.dir === 'out'); } catch { buf.neverSpoke = false; }
+    try {
+      // 前面 40 条里她说过几条？说不到 6 条算"刚认识"，这时候不许装忙、不许不回。
+      buf.neverSpoke = chatlog.recent(conv.id, 40).filter(r => r && r.dir === 'out').length < 6;
+    } catch { buf.neverSpoke = false; }
   }
-  if (buf.neverSpoke) plan = { ms: 1500 + Math.floor(Math.random() * 2500), skip: false };
+  if (buf.neverSpoke) plan = { ms: 1200 + Math.floor(Math.random() * 1800), skip: false };
 
   // 这场是她先开的、还轮到她：闲话也要接。装没看见就是把他晾在她自己挑起的话里。
   if (outreachHold(conv)) {
@@ -3444,6 +3451,15 @@ async function replyNowInner(conv, body, extras = {}) {
     : `【对方 ${whoLabel(conv.id)}说】`;
   // "刚睡醒 / 被叫醒"这类一次性提示，两条通道都用得上
   const wakeLine = extras.wakeNote ? `【${extras.wake ? '你刚睡醒' : '状态'}】${extras.wakeNote}` : '';
+  // 刚认识（她还没说过几句）：别一上来就赶人睡觉、别冷场。
+  // 全新安装的用户往往在深夜第一次打开，被一句"我该睡了"挡回去就再也不来了。
+  let earlyLine = '';
+  try {
+    const said = chatlog.recent(conv.id, 40).filter(r => r && r.dir === 'out').length;
+    if (!extras.proactive && said < 6) {
+      earlyLine = '【刚开始聊】这个人刚认识你，正想跟你说话。别用「我该睡了」「不早了」结束对话，也别嫌他烦——先陪他聊几句，真没话说了再收。';
+    }
+  } catch {}
   // 隔了很久才回（她刚才在忙/手机不在手上）：让她自己带一句，别装成秒回
   const busyLine = Number(extras.waitedMs) > 90000
     ? `【你刚才在忙】他 ${Math.max(1, Math.round(Number(extras.waitedMs) / 60000))} 分钟前发的，你刚拿到手机看到。回的时候顺口带一句「刚在忙」「才看到这个」——一句就够，别解释、别道歉个没完。`
@@ -3506,6 +3522,7 @@ async function replyNowInner(conv, body, extras = {}) {
         sleepNote(mk),
         sleepOff() ? NO_SLEEP_NOTE : '',
         wakeLine,
+        earlyLine,
         '',
         '【现在没人说话，是你自己想开口】',
         extras.proactiveHint ? extras.proactiveHint : '',
@@ -3560,6 +3577,7 @@ async function replyNowInner(conv, body, extras = {}) {
         sleepNote(mk),
         sleepOff() ? NO_SLEEP_NOTE : '',
         wakeLine,
+        earlyLine,
         busyLine,
         '',
         who,
