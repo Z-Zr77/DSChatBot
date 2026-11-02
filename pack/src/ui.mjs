@@ -5,7 +5,7 @@ import * as daily from './daily.mjs';
 import * as loops from './loops.mjs';
 import * as life from './life.mjs';
 import * as caps from './caps.mjs';
-import * as qqlogin from './qqlogin.mjs';
+import * as plugins from './plugins.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -1102,6 +1102,27 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, minutes, until });
   }
 
+  if (p === '/api/plugins' && req.method === 'GET') {
+    try {
+      const setup = loadSetup();
+      const items = plugins.list(setup).map((m) => ({ ...m, missing: plugins.missing(m, setup) }));
+      return send(res, 200, { ok: true, items });
+    } catch (e) { return send(res, 500, { ok: false, err: String(e.message || e) }); }
+  }
+
+  if (p === '/api/plugins/toggle' && req.method === 'POST') {
+    try {
+      const b = await body(req);
+      const id = String(b.id || '').trim();
+      if (!id) return send(res, 400, { ok: false, err: '没有说要改哪个插件' });
+      const cur = loadSetup();
+      const st = { ...((cur.plugins || {})[id] || {}) };
+      st.enabled = b.enabled !== false;
+      saveSetup({ plugins: { ...(cur.plugins || {}), [id]: st } });
+      return send(res, 200, { ok: true, id, enabled: st.enabled, needRestart: true });
+    } catch (e) { return send(res, 500, { ok: false, err: String(e.message || e) }); }
+  }
+
   // 一键接上：从 SnowLuma 自己的 config/onebot_<uin>.json 里读端口和两个 token。
   // 用户不该手抄这些东西 —— 之前就是抄错一个 token，401 查了半小时。
   if (p === '/api/qq/attach' && req.method === 'POST') {
@@ -1957,31 +1978,6 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, ownerUin: patch.qq.ownerUin || '', name: patch.qq.name || '' });
     }
 
-    // 密码登录：状态与"启动 QQ"
-    if (p === '/api/qq/login/status') {
-      try { return send(res, 200, { ok: true, ...(await qqlogin.status()) }); }
-      catch (e) { return send(res, 200, { ok: false, err: String(e && e.message || e) }); }
-    }
-    // ① 打开普通 QQ 客户端（有窗口，能输密码）
-    if (p === '/api/qq/login/start' && req.method === 'POST') {
-      try {
-        const r = await qqlogin.openClient();
-        const st = await qqlogin.status();
-        return send(res, 200, { ...r, ...st, steps: qqlogin.STEPS });
-      } catch (e) {
-        return send(res, 200, { ok: false, err: String(e && e.message || e) });
-      }
-    }
-    // ② 登录好了，拉起 NapCat 内核（复用 QQ 记住的凭证）
-    if (p === '/api/qq/login/attach' && req.method === 'POST') {
-      try {
-        const st = await qqlogin.attach();
-        return send(res, 200, { ok: true, ...st });
-      } catch (e) {
-        return send(res, 200, { ok: false, err: String(e && e.message || e) });
-      }
-    }
-
     // 能力探测：五盏灯里"语音/识别"两盏不按配置字段判，按这台机器真能不能跑。
     if (p === '/api/caps') {
       try {
@@ -2559,57 +2555,36 @@ __CONSOLE_STYLE__
 </section>
 
 <section id="qq">
-  <p class="dim" id="qqOwnerHint" style="display:none;margin:0 0 10px">还没有填「你的 QQ」：现在聊天记录挂在 local 这个身份下，她认得的是"本地窗口里的你"。填上之后才分得清谁是谁。 <a href="javascript:void 0" data-p="qqOwner" onclick="document.getElementById('ownerInput')&&document.getElementById('ownerInput').focus()" style="color:#7fb2ff">去填</a></p>
-  <div class="card" id="qqGuide">
-    <div class="toolbar"><b>从零接上 QQ</b></div>
-    <p class="dim" style="margin:6px 0 10px">不接 QQ 也能在这台电脑上跟她聊。要接的话，先选一种协议端（负责登录 QQ 的小软件），再按下面的步骤做。两种不要同时开。</p>
-    <div class="row" style="gap:10px;margin-bottom:8px">
-      <span class="dim">协议端</span>
-      <select id="qqProtocol" aria-label="协议端" onchange="paintQqGuide()" style="max-width:280px">
-        <option value="snowluma">SnowLuma（推荐）</option>
-        <option value="napcat">NapCat（旧版，扫码）</option>
-      </select>
+  <p class="dim" id="qqOwnerHint" style="display:none;margin:0 0 10px">还没有填「你的 QQ」：现在聊天记录挂在 local 这个身份下，她认得的是"本地窗口里的你"。填上之后才分得清谁是谁。</p>
+  <div class="card">
+    <div class="toolbar"><b id="plgName">QQ 通道</b><span class="spacer"></span><span id="plgState" class="dim">检查中…</span></div>
+    <p class="dim" id="plgDesc" style="margin:6px 0 10px"></p>
+    <div class="row" style="gap:10px;flex-wrap:wrap">
+      <button class="btn" id="plgToggle" onclick="togglePlugin('qq')">启用</button>
+      <button class="ghost" onclick="openSnowLuma()">打开它的面板</button>
+      <button class="btn ghost" onclick="attachOnebot(this)">一键接上（自动读端口和 token）</button>
+      <span class="dim" id="attachHint"></span>
     </div>
-    <div id="qqGuideBody" class="dim" style="line-height:1.75"></div>
-    <div class="row" style="gap:10px;margin-top:10px">
-      <input id="qqClientDir" placeholder="协议端文件夹，里面要有 launcher.bat" style="flex:1">
-      <button class="btn" onclick="saveQqClient()">保存协议和路径</button>
-    </div>
-    <p class="dim" id="qqClientHint" style="margin:8px 0 0"></p>
-    <div class="row" style="gap:10px;margin-top:12px">
-      <button class="btn" onclick="attachOnebot(this)">一键接上（自动读端口和 token）</button>
-      <span class="dim" id="attachHint">登录之后点这个，不用自己抄 token</span>
-    </div>
-    <details class="cfgrp" style="margin-top:10px">
-      <summary>高级：手动填 ws 地址和 token</summary>
-      <div class="cfgrpbody">
-        <p class="dim" style="margin:0 0 8px">一般用不着。SnowLuma 的 token 在它的 <code>config/onebot_*.json</code> 里（ws 和 http 是两个不同的 token）。</p>
-        <div class="row" style="gap:10px">
-          <input id="obUrl" placeholder="ws 地址（留空 = ws://127.0.0.1:3001）" style="flex:1">
-          <input id="obToken" placeholder="ws access token（可留空）" style="flex:1">
-          <input id="obHttpToken" placeholder="http access token（可留空）" style="flex:1">
-          <button class="btn ghost" onclick="saveOnebot()">保存</button>
-        </div>
-        <p class="dim" id="obHint" style="margin:8px 0 0"></p>
+    <p class="dim" style="margin:10px 0 0">她不负责登录 QQ：登录交给 SnowLuma 这类协议网关，她只连一个地址。网关挂了，她照常在本地窗口跟你说话。</p>
+  </div>
+  <details class="cfgrp">
+    <summary>高级：手动填 ws 地址和 token</summary>
+    <div class="cfgrpbody">
+      <p class="dim" style="margin:0 0 8px">一般用不着。SnowLuma 的 token 在它的 <code>config/onebot_*.json</code> 里（ws 和 http 是两个不同的 token）。</p>
+      <div class="row" style="gap:10px;flex-wrap:wrap">
+        <input id="obUrl" placeholder="ws 地址（留空 = ws://127.0.0.1:3001）" style="flex:1;min-width:220px">
+        <input id="obToken" placeholder="ws access token" style="flex:1;min-width:180px">
+        <input id="obHttpToken" placeholder="http access token" style="flex:1;min-width:180px">
+        <button class="btn ghost" onclick="saveOnebot()">保存</button>
       </div>
-    </details>
-  </div>
-  <div class="card" id="qqLoginCard">
-    <div class="toolbar"><b>登录 QQ</b><span class="spacer"></span><span id="qqLoginStage" class="dim">未开始</span></div>
-    <p class="dim" style="margin:6px 0 10px" id="qqLoginHow">SnowLuma 用<b>它自己的登录页</b>（<code>127.0.0.1:5099</code>）用账号密码登一次；NapCat 只能扫码。两种都是<b>登一次就够</b>，登录态留在本机。</p>
-    <div class="row" style="gap:10px;margin-bottom:10px">
-      <button class="btn" onclick="qqScanNow(this)">扫码登录 QQ</button>
-      <button class="ghost" onclick="qqLoginRefresh()">检查一下</button>
-      <span class="dim" id="qqLoginMsg"></span>
+      <p class="dim" id="obHint" style="margin:8px 0 0"></p>
     </div>
-    <div id="qrSlot"></div>
-    <p class="dim" style="margin:10px 0 0">用另一台手机上的小号扫；同一台手机扫不了自己屏幕上的码。</p>
-  </div>
-  <div id="statusBox"></div>
+  </details>
+  <div id="statusBox" style="display:none"></div>
   <div class="card" style="margin-top:14px">
     <div class="row" style="justify-content:space-between"><b>你的 QQ（主人号）</b>
       <button class="btn" onclick="saveOwner()">保存</button></div>
-    <div class="dim" style="margin:6px 0 8px">填你自己平时用的号，不是上面登录的那个小号。只有这个号能让她动电脑、看她的记忆。两个号不要填成同一个。</div>
+    <div class="dim" style="margin:6px 0 8px">填你自己平时用的号，不是她登录的那个小号。只有这个号能让她动电脑、看她的记忆。</div>
     <div class="row" style="gap:10px">
       <input id="ownerInput" inputmode="numeric" placeholder="例如 123456789" style="max-width:260px">
       <span class="dim" id="ownerHint"></span>
@@ -3268,6 +3243,39 @@ async function loadQqGuide() {
     paintQqGuide();
   } catch (e) {}
 }
+async function loadPlugins(){
+  try {
+    const r = await api('/api/plugins');
+    const qq = (r && r.items || []).find((x) => x.id === 'qq');
+    if (!qq) return;
+    const state = document.getElementById('plgState');
+    const btn = document.getElementById('plgToggle');
+    const desc = document.getElementById('plgDesc');
+    if (desc && !desc.textContent) desc.textContent = qq.desc || '';
+    if (state) {
+      const missing = (qq.missing || []).length;
+      state.textContent = (qq.enabled ? '已启用' : '未启用') + (missing ? ' · 还差 ' + missing + ' 项配置' : '');
+      state.style.color = qq.enabled ? '#5ed37b' : '';
+    }
+    if (btn) btn.textContent = qq.enabled ? '停用' : '启用';
+  } catch {}
+}
+
+async function togglePlugin(id){
+  try {
+    const r = await api('/api/plugins').catch(() => null);
+    const cur = ((r && r.items) || []).find((x) => x.id === id);
+    const next = !(cur && cur.enabled);
+    await api('/api/plugins/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, enabled: next }) });
+    toast(next ? '已启用，重启桥接后生效' : '已停用，重启桥接后生效', true);
+    await loadPlugins();
+  } catch (e) { toast('改不了插件状态：' + (e.message || e)); }
+}
+
+function openSnowLuma(){
+  try { window.open('http://127.0.0.1:5099/', '_blank'); } catch (e) { toast('打不开面板，检查它有没有在跑'); }
+}
+
 async function attachOnebot(btn){
   const hint = document.getElementById('attachHint');
   if (btn) { btn.disabled = true; btn.textContent = '正在接…'; }

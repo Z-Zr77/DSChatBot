@@ -126,12 +126,11 @@ test('补2 /work/start 的能力由档位决定，客户端传的 caps 不再说
   assert.match(br, /workCfg\(\)\.defaultMode/, '没传 mode 就退回设置里存的档位');
 });
 
-test('补3 guard 重拉内核前必须先收掉上一份（否则一天堆十几个实例，旧实例还占着登录）', () => {
-  const g = read('napcat-guard.mjs');
-  assert.match(g, /function killKernel\(\)/, '要有 killKernel');
-  assert.match(g, /'\/end', '\/tn', TASK_NAME/, '先 /end 结束任务');
-  assert.match(g, /taskkill\.exe', \['\/F', '\/T', '\/IM', 'NapCatWinBootMain\.exe'\]/, '只杀 NapCatWinBootMain 的进程树，不按 QQ.exe 名字杀');
-  const iKill = g.indexOf('await killKernel();');
-  const iRun = g.indexOf('await runTask();');
-  assert.ok(iKill > 0 && iRun > iKill, 'killKernel 必须在 runTask 之前');
+test('补3 她已经不再管 QQ 内核了：这条能力连同 napcat-guard 一起删掉', () => {
+  // 以前这里断言 killKernel 必须先于 runTask。现在立场变了：
+  // 拉起/清理 QQ 进程不是她的事（SnowLuma 自己管），她只管连一个 OneBot 地址。
+  // 所以这条测试改成"确认旧实现确实没了"，防止有人又把它加回来。
+  assert.equal(fs.existsSync('pack/src/napcat-guard.mjs'), false, 'napcat-guard 不该再存在');
+  const b = fs.readFileSync('pack/src/bridge.mjs', 'utf8');
+  assert.equal(/NapCatWinBootMain|QQBotNapCatCore/.test(b), false, '桥接里不该再出现计划任务/内核进程名');
 });

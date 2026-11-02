@@ -1,0 +1,17 @@
+{
+  "id": "qq",
+  "name": "QQ 通道",
+  "title": "QQ（OneBot v11）",
+  "version": "1.0.0",
+  "kind": "channel",
+  "default": true,
+  "desc": "让她的消息走 QQ。她不负责登录 QQ：登录交给 SnowLuma 这类协议网关，她只连一个 ws 地址。",
+  "needs": ["onebot.port"],
+  "optional": ["onebot.token"],
+  "docs": "docs/qq.md",
+  "gateway": {
+    "preferred": "snowluma",
+    "panel": "http://127.0.0.1:5099",
+    "note": "SnowLuma 自己管 QQ 登录与进程；她只负责连上、发、收。"
+  }
+}

@@ -26,6 +26,7 @@ import * as skills from './skills.mjs';
 import * as toolbox from './tools.mjs';
 import * as grants from './grants.mjs';
 import * as fsguard from './fsguard.mjs';
+import * as plugins from './plugins.mjs';
 import { wsUrlOf, wsHeadersOf, wsUrlWithToken, openWs, httpHeadersOf } from './onebot.mjs';
 import * as snapshots from './snapshots.mjs';
 import * as backup from './backup.mjs';
@@ -4116,7 +4117,10 @@ async function browseTick() {
 const FORCE_FILE = path.join(RQ, 'proactive.once');
 
 // 通道注册：她住在桥接进程里，QQ 只是出口之一。出口堵了她照样跑（见 channels.mjs）。
-channels.register({
+// QQ 是"插件"：插件关掉就不注册这条腿，也不去连OneBot —— 内核照样活。
+const QQ_ON = plugins.isEnabled(SETUP, 'qq');
+if (!QQ_ON) log('[plugins] QQ 通道未启用：只走本地窗口');
+if (QQ_ON) channels.register({
   id: 'qq', label: 'QQ', kinds: ['private', 'group'],
   conv: (uin) => ({ kind: 'private', id: String(uin) }),
   // 投递层：QQ 这条腿就只有这一处（换平台 = 换这一个函数，不动她的对话内核）
@@ -4499,7 +4503,8 @@ setInterval(() => {
   if (h >= 22 || h < 4) writeJournal().catch(() => {});
 }, 20 * 60 * 1000);
 setTimeout(() => { const h = daily.hourNow(); if (h >= 22 || h < 4) writeJournal().catch(() => {}); }, 90 * 1000);
-connectWs();
+if (QQ_ON) connectWs();
+else log('[plugins] 跳过 QQ 连接');
 
 // ---------- 调参用：本机 dry-run 探针（不发消息、不写记忆，只走同一条推理链路） ----------
 if (process.env.BRIDGE_PROBE === '1') {

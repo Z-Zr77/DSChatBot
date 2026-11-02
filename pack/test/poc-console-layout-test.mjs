@@ -90,10 +90,12 @@ try {
     await js('toggleWorkTools()'); assert.equal(toolsEnabled, false);
     await screen('01-overview');
   });
-  await check('QQ 页是密码登录卡，没有扫码入口', async () => {
-    assert.equal(await js('!!document.querySelector("#qqLoginCard")'), true, '没有密码登录卡');
+  await check('QQ 页是插件卡：没有扫码、没有内核/协议端选择', async () => {
+    // QQ 已经外挂化：她不负责登录 QQ，所以页面上不该再出现扫码、协议端下拉、内核按钮
+    assert.equal(await js('!!document.querySelector("#plgName")'), true, '没有插件卡');
     assert.equal(await js('!!document.querySelector("#qrPin")'), false, '扫码固定入口还在');
-    assert.equal(await js('!!document.querySelector("#scanEntry")'), false, '扫码入口卡还在');
+    assert.equal(await js('!!document.querySelector("#qqProtocol")'), false, '协议端下拉还在');
+    assert.equal(await js('!!document.querySelector("#qqLoginCard")'), false, '登录卡还在');
   });
 
   await check('概览短摘要与独立日志页可刷新', async () => {

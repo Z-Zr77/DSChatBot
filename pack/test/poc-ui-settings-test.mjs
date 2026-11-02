@@ -34,7 +34,7 @@ check('状态里带 napcatReady', /napcatReady:\s*ncReady/.test(src));
 check('状态里带 snowlumaReady', /snowlumaReady:\s*slReady/.test(src));
 check('SnowLuma 引导不再写未接上', !/还没接上/.test(src) && !/TODO\(backend\)/.test(src) && /打开登录页/.test(src));
 check('没装内核时给安装引导', /function napcatGuide\(S\)/.test(src) && /NapCatQQ\/releases/.test(src));
-check('QQ 页有从零指南和协议开关', /从零接上 QQ/.test(src) && /id="qqProtocol"/.test(src) && /value="snowluma"/.test(src) && /value="napcat"/.test(src));
+check('QQ 页是插件卡（不再是协议端指南）', /id="plgName"/.test(src) && /togglePlugin\('qq'\)/.test(src) && !/id="qqProtocol"/.test(src) && !/从零接上 QQ/.test(src));
 check('没出码时不只有一句确认路径', !src.includes('确认路径') && /qqNoQrHelp/.test(src) && /主人号/.test(src) && /launcher\.bat/.test(src));
 {
   const brain = src.slice(src.indexOf('id="gBrain"'), src.indexOf('id="gMedia"'));
