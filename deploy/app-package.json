@@ -1,0 +1,13 @@
+{
+    "name":  "qqchatbot-app",
+    "private":  true,
+    "type":  "module",
+    "dependencies":  {
+                         "mpg123-decoder":  "^1.0.3",
+                         "silk-wasm":  "^3.7.1",
+                         "ws":  "^8.22.0",
+                         "qrcode":  "^1.5.4",
+                         "pngjs":  "^7.0.0",
+                         "jsqr":  "^1.4.0"
+                     }
+}
