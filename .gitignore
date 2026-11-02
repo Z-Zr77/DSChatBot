@@ -92,3 +92,9 @@ docs/images/chat.png
 _cls_dry.txt
 _cls_*.txt
 
+
+# 本地临时产物（部署/测试用，别进仓库）
+_*
+!pack/_tools/
+*.tgz
+*.log

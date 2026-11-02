@@ -1,1 +1,0 @@
-{"ok":true,"items":[{"id":"qq","name":"QQ 通道","version":"1.0.0","kind":"channel","title":"QQ（OneBot v11）","desc":"让她的消息走 QQ。她不负责登录 QQ：登录交给 SnowLuma 这类协议网关，她只连一个 ws 地址。","needs":["onebot.port"],"dir":"E:\\DSChatBot\\resources\\app\\plugins\\qq","file":"E:\\DSChatBot\\resources\\app\\plugins\\qq\\plugin.json","enabled":true,"missing":[]}]}
