@@ -31,6 +31,8 @@ check('面板那份叫 saveBrainCfgBox 且读 br*', /async function saveBrainCfg
   check('没有重名函数（会静默覆盖）', dup.length === 0, dup.join(','));
 }
 check('状态里带 napcatReady', /napcatReady:\s*ncReady/.test(src));
+check('状态里带 snowlumaReady', /snowlumaReady:\s*slReady/.test(src));
+check('SnowLuma 引导不再写未接上', !/还没接上/.test(src) && !/TODO\(backend\)/.test(src) && /打开登录页/.test(src));
 check('没装内核时给安装引导', /function napcatGuide\(S\)/.test(src) && /NapCatQQ\/releases/.test(src));
 check('QQ 页有从零指南和协议开关', /从零接上 QQ/.test(src) && /id="qqProtocol"/.test(src) && /value="snowluma"/.test(src) && /value="napcat"/.test(src));
 check('没出码时不只有一句确认路径', !src.includes('确认路径') && /qqNoQrHelp/.test(src) && /主人号/.test(src) && /launcher\.bat/.test(src));
@@ -122,6 +124,7 @@ try {
 
   const st = await (await fetch(`http://127.0.0.1:${PORT}/api/state`)).json();
   check('state 里有 napcatReady', typeof st.napcatReady === 'boolean', JSON.stringify(st.napcatReady));
+  check('state 里有 snowlumaReady', typeof st.snowlumaReady === 'boolean', JSON.stringify(st.snowlumaReady));
 } catch (e) {
   console.log('FAIL 异常', e.message); fail++;
 } finally {

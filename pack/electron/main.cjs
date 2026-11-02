@@ -1,6 +1,6 @@
 // Electron 主进程：窗口 + 托盘 + 拉起 launch.mjs（用它自己的 node 运行时）。
 // 第一次见面还没做完（没有 API Key，或还没填主人号）时先开控制台。
-// QQ / NapCat 向导不参与启动落点，从 QQ 页或托盘再进。
+// QQ 接入向导不参与启动落点，从 QQ 页或托盘再进。
 const { app, BrowserWindow, shell, Menu, Tray, nativeImage, dialog, Notification } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -244,13 +244,29 @@ function setAutoStart(on) {
 
 // ---------- 内核守护（计划任务） ----------
 const CORE_TASK = 'QQBotNapCatCore';
-function napcatDir() {
-  try {
-    const s = JSON.parse(fs.readFileSync(path.join(dataDir(), 'setup.json'), 'utf8'));
-    const d = s && s.napcat && s.napcat.dir;
-    return d && fs.existsSync(path.join(d, 'launcher.bat')) ? d : '';
-  } catch { return ''; }
+function loadSetupRaw() {
+  try { return JSON.parse(fs.readFileSync(path.join(dataDir(), 'setup.json'), 'utf8')); } catch { return {}; }
 }
+function hasLauncher(dir) {
+  try {
+    return !!(dir && (fs.existsSync(path.join(dir, 'launcher.bat')) || fs.existsSync(path.join(dir, 'launcher.sh'))));
+  } catch { return false; }
+}
+function qqProtocol() {
+  const s = loadSetupRaw();
+  return s && s.qq && s.qq.protocol === 'snowluma' ? 'snowluma' : 'napcat';
+}
+function qqClientDir() {
+  const s = loadSetupRaw();
+  if (qqProtocol() === 'snowluma') {
+    const d = s && s.snowluma && s.snowluma.dir;
+    return hasLauncher(d) ? d : '';
+  }
+  const d = s && s.napcat && s.napcat.dir;
+  return hasLauncher(d) ? d : '';
+}
+/** @deprecated 兼容旧调用；按当前协议返回目录 */
+function napcatDir() { return qqClientDir(); }
 function sh(args) {
   return new Promise((resolve) => {
     try {
@@ -281,13 +297,15 @@ async function restartKernel(interactive) {
 function installCoreTask() {
   const d = napcatDir();
   if (!d) {
-    dialog.showMessageBox({ type: 'warning', title: '找不到 NapCat', message: '先完成向导里的 NapCat 路径设置（目录里要有 launcher.bat）。' });
+    const proto = qqProtocol() === 'snowluma' ? 'SnowLuma' : 'NapCat';
+    dialog.showMessageBox({ type: 'warning', title: '找不到 QQ 协议端', message: '先在控制台「QQ」页选好 ' + proto + ' 并填路径（目录里要有 launcher.bat 或 launcher.sh）。' });
     return;
   }
+  const launcher = fs.existsSync(path.join(d, 'launcher.bat')) ? 'launcher.bat' : 'launcher.sh';
   const vbs = path.join(dataDir(), 'napcat-core.vbs');
   const ps1 = path.join(dataDir(), 'install-core.ps1');
   fs.writeFileSync(vbs,
-    'CreateObject("WScript.Shell").Run "cmd /c cd /d ""' + d + '"" && launcher.bat", 0, False\r\n', 'utf8');
+    'CreateObject("WScript.Shell").Run "cmd /c cd /d ""' + d + '"" && ' + launcher + '", 0, False\r\n', 'utf8');
   fs.writeFileSync(ps1,
     '$ErrorActionPreference = "Stop"\r\n' +
     'schtasks /create /tn "' + CORE_TASK + '" /tr "wscript.exe \\"' + vbs + '\\"" /sc once /st 00:00 /f /rl highest\r\n' +
@@ -365,12 +383,12 @@ function buildTray() {
     await refreshTrayStatus();
   } };
   const auto = { label: '开机自动启动', type: 'checkbox', checked: autoStartOn(), click: (item) => setAutoStart(item.checked) };
-  // 托盘留每天会点的，再加上 QQ / NapCat 向导。
+  // 托盘留每天会点的，再加上 QQ 接入向导。
   // 向导不再抢第一次启动（没密钥时先看控制台的「第一次见面」），所以从这里和 QQ 页进。
   const template = [
     { label: '打开聊天', click: openChat },
     { label: '打开控制台', click: () => openConsole() },
-    { label: 'QQ / NapCat 向导', click: () => { openWizard().catch((e) => logLine('tray wizard', String(e && e.message || e))); } },
+    { label: 'QQ 接入向导', click: () => { openWizard().catch((e) => logLine('tray wizard', String(e && e.message || e))); } },
     { type: 'separator' },
     pauseItem,
     auto,
