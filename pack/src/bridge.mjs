@@ -203,6 +203,7 @@ const PERSONA_TAIL = `
 - 每条消息前面会附上一段记忆，分「你确定记得的」和「印象已经淡了」两档；淡的只能说个大概。
 - 要记的事按人格设定里的写法，在回复最后单独一行写 \`[[MEMO: …]]\`（重要的写 \`[[MEMO!: …]]\`），系统会存下来并把这行从发出去的内容里删掉。一条最多三条。
 - 用第三人称、简短陈述，例：\`[[MEMO: 他叫不二，做游戏策划]]\`。没想起什么要记的就别写。
+- **只输出你要说出口的话**：不要写【…】小节标题、不要复述这些规则、不要输出“我在检查记忆/要不要删/重复了”这类思考过程。
 - **记错了要自己改**：他说的和记忆里对不上（换城市、换工作、毕业、分手、改名、戒了某样东西）就写 \`[[FORGET: 旧记忆里的关键词]]\` 删旧的，再写 \`[[MEMO: …]]\` 记新的。旧的是核心记忆就用 \`[[FORGET!: 关键词]]\`。别让新旧两条并存。
 
 - **你有自己长期在忙的事**（上面「你长期在忙的事」那几件）。聊到相关的事要自然带出来；真做了点什么就写 \`[[进度: 目标名|+0.1|今天干了啥]]\` 推进度；彻底做完写 \`[[目标完成: 目标名]]\`；不想做了写 \`[[放弃目标: 目标名|原因]]\`；突然想做新的写 \`[[新目标: 名字|为什么]]\`。这些标记系统会吃掉，不会发出去。
@@ -256,6 +257,35 @@ function appendMemory(uin, memo, core = false, srcText = '') {
   }
 }
 
+// 她偶尔会把自己的检查过程、规则复述写进回复里（真发生过：整段【记错要改】+ 思考过程 + 正文重复两遍）。
+// 这些不是"她说的话"，发出去等于把后台日志贴给了人。
+// 【…】在提示词里只当小节标题用，所以按行丢：出现【…】标题、或直接写出 MEMO/FORGET 指令的行，整行不要。
+const META_LINE = /【[^】]{1,14}[^】]*】|\[\[\s*(MEMO|FORGET)/i;
+// 她说"我在检查/要不要删/重复了"这种后台独白，也不是要说的话
+const SELFTALK = /(要不要删|写\s*FORGET|MEMO\s*(会|就|该)|检查(有没有)?重复|不该重复|核心记忆|删掉我这条|语义一样)/i;
+function stripMetaLeak(text) {
+  let s = String(text || '');
+  if (!s) return s;
+  const keep = [];
+  let skipUntilBlank = false;
+  for (const ln of s.split('\n')) {
+    const t = ln.trim();
+    if (!t) { skipUntilBlank = false; keep.push(ln); continue; }
+    if (META_LINE.test(t) || SELFTALK.test(t)) { skipUntilBlank = true; continue; }
+    if (skipUntilBlank && t.length < 200 && /记忆|MEMO|FORGET|规则|删掉|检查|重复|核心/.test(t)) continue;
+    skipUntilBlank = false;
+    keep.push(ln);
+  }
+  s = keep.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  // 同一段话说两遍（先独白、后正文时常见）：末尾那段如果包含前半段，只留末尾
+  const paras = s.split(/\n{2,}/).filter(Boolean);
+  if (paras.length >= 2) {
+    const a = paras[0].replace(/\s/g, ''), b = paras[paras.length - 1].replace(/\s/g, '');
+    if (a && b && (a === b || (b.length > 4 && a.includes(b)))) s = paras[paras.length - 1];
+  }
+  return s;
+}
+
 // 从回复里剥出 [[MEMO: ...]]（核心用 [[MEMO!: ...]]）和 [[FORGET: ...]]（改核心记忆用 [[FORGET!: ...]]）
 function extractMemos(text) {
   const memos = [];
@@ -287,7 +317,7 @@ function extractMemos(text) {
     .replace(/\[\[\s*放弃目标\s*[:：]\s*([^|\]]+)\|?([^\]]*)\]\]/g, (_m, t, why) => { goalOps.push({ op: 'drop', t: t.trim(), why: (why || '').trim() }); return ''; })
     .replace(/\[\[\s*新目标\s*[:：]\s*([^|\]]+)\|?([^\]]*)\]\]/g, (_m, t, why) => { goalOps.push({ op: 'add', t: t.trim(), why: (why || '').trim() }); return ''; })
     .trim();
-  return { cleaned: cleanedG, memos: memos.slice(0, 3), forgets: forgets.slice(0, 3), plans: plans.slice(0, 2), goalOps };
+  return { cleaned: stripMetaLeak(cleanedG), memos: memos.slice(0, 3), forgets: forgets.slice(0, 3), plans: plans.slice(0, 2), goalOps };
 }
 
 // ---------- 表情包素材库 ----------
