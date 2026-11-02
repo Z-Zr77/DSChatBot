@@ -171,7 +171,7 @@ t('#26 穿着不再从上一张照片的 outfit 继承', () => {
 
 t('#27 propsIn 走 imageintent.propsOf，且补画仍由 missing.length 把关', () => {
   assert.match(src, /function propsIn\(text\) \{\s*return imageintent\.propsOf\(text\);/);
-  assert.match(src, /if \(missing\.length\) \{/);
+  assert.match(src, /if \(ALLOW_REDRAW && missing\.length\) \{/);
 });
 
 t('#28 判定没有塞回 bridge（HER_RE/PRESENCE_RE 已删除，只在 imageintent 里）', () => {

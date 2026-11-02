@@ -1799,17 +1799,31 @@ async function sendSelfie(conv, scene, extra = {}) {
     const opts = { model: cfgD.model };
     // 自拍一定要带"她本人"的参考图：接着拍用上一张（人物/环境一起延续），
     // 但换装时不能用上一张——旧衣服会把新衣服压回去，改用固定形象图。
+    // 参考图选谁，决定了衣服会不会变：
+    //   换装 → 不能用上一张（旧衣服会把新衣服压回去），改用固定形象图
+    //   没换装 → 一律用上一张（哪怕地点变了）：上一张里她就是"这身衣服"，比设定稿更可信
+    //   从没拍过 → 只能退回固定形象图
     if (refFiles.length > 1) {
       opts.refFiles = refFiles;          // 多参考：她 + 他给的图
       opts.refFile = herRef || '';
+    } else if (changing) {
+      opts.refFile = herRef;
+    } else if (prev && prev.file) {
+      // 两张一起给：第 1 张锁脸和发型（固定形象图），第 2 张锁"今天这身衣服 + 当下环境"。
+      // 只给上一张会连姿势构图一起抄；只给固定图会把衣服压回女仆装。
+      const conts = [herRef, prev.file].filter((f) => f && fs.existsSync(f));
+      if (conts.length > 1) { opts.refFiles = conts; opts.refFile = herRef; }
+      else opts.refFile = prev.file || herRef;
     } else {
-      opts.refFile = changing ? herRef : (cont ? prev.file : herRef);
+      opts.refFile = herRef;
     }
+    try { log('[selfie] 参考图:', changing ? '固定形象图(换装)' : (prev && prev.file ? (opts.refFiles ? '固定形象图+上一张' : '上一张') : '固定形象图')); } catch {}
     const propsWant = propsIn(sTxt);
     let shot = await draw.generate(prompt, opts);
-    // 先查形体：多手/多臂/畸形 → 重画一次（一次为限）
+    // 先查形体：多手/多臂/畸形 → 只记录，不再重画（他要"一次拍成"；重画会改脸改衣服还多花钱）
+    const ALLOW_REDRAW = false;
     let audit = await selfieAudit(shot.file);
-    if (audit.bad) {
+    if (ALLOW_REDRAW && audit.bad) {
       log('[selfie] 形体不对', 'HANDS=' + audit.hands, 'ARMS=' + audit.arms, '→ 重画一次');
       try {
         const fixHands = prompt + '重画这一张：她只有两只手、两条胳膊。' + (propsWant.length ? `两只手分别拿着：${propsWant.join('、')}；` : '') + '不要再画第三只手、第四条胳膊或多余的手指，也不要把举着手机的手臂画进来。';
@@ -1826,7 +1840,7 @@ async function sendSelfie(conv, scene, extra = {}) {
     let look = await selfieLook(shot.file);
     const want = propsWant;
     const missing = look ? want.filter((w) => !propHit(look, w)) : [];
-    if (missing.length) {
+    if (ALLOW_REDRAW && missing.length) {
       log('[selfie] 自检不符：描述里有', missing.join('/'), '画面里没有 → 重画一次');
       try {
         const fix = prompt + `画面里必须看得见：${missing.join('、')}。别再加别的食物或道具。`;
@@ -1838,6 +1852,10 @@ async function sendSelfie(conv, scene, extra = {}) {
         else log('[selfie] 重画后仍不符：', (look2 || '(没看出内容)').slice(0, 80));
       } catch (e) { log('[selfie] 重画失败', e.message || String(e)); }
     }
+    try {
+      if (audit && audit.bad) log('[selfie] 形体瑕疵(不重画):', 'HANDS=' + audit.hands, 'ARMS=' + audit.arms);
+      if (missing && missing.length) log('[selfie] 画面缺:', missing.join('/') , '(不重画)');
+    } catch {}
     q.use();
     budget.add('draw', 0.15);
     self.setLast(shot.file, String(sTxt || '').slice(0, 120), placeHint, outfit, look || '');

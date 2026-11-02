@@ -122,7 +122,8 @@ t('bridge：QQ 离线时主动消息只发给主人', () => {
 
 t('bridge：自拍显式给参考图（接上一张 / 固定形象图；换装时不用上一张）', () => {
   const s = src('bridge.mjs');
-  assert.match(s, /opts\.refFile = changing \? herRef : \(cont \? prev\.file : herRef\)/);
+  assert.ok(/} else if \(changing\) \{[\s\S]{0,120}opts\.refFile = herRef;/.test(s), '换装时必须用固定形象图');
+  assert.ok(/} else if \(prev && prev\.file\) \{/.test(s) && /opts\.refFile = prev\.file \|\| herRef|opts\.refFiles = conts/.test(s), '没换装时要带上上一张（多图或单图）');
 });
 
 t('self：不再写死室内光，地点按室内外，白天/夜里分光', () => {

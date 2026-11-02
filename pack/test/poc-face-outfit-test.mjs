@@ -82,7 +82,9 @@ t('需求识别：提了几次 + 语气硬度 → 生成"他这次是认真的"�
 });
 
 t('换装：换装时不拿上一张当参考图（旧衣服会压回去）', () => {
-  assert.ok(/opts\.refFile = changing \? herRef : \(cont \? prev\.file : herRef\)/.test(bridge));
+  // 换装 → 固定形象图；没换装 → 固定图 + 上一张（脸和衣服各锁一张）
+  assert.ok(/} else if \(changing\) \{[\s\S]{0,120}opts\.refFile = herRef;/.test(bridge), '换装时必须用固定形象图');
+  assert.ok(/opts\.refFiles = conts/.test(bridge) && /opts\.refFile = prev\.file \|\| herRef/.test(bridge), '没换装时要带上上一张');
 });
 
 t('换装：提示词在换装时不再说“只改姿势/别换衣服”', () => {
