@@ -26,6 +26,7 @@ import * as skills from './skills.mjs';
 import * as toolbox from './tools.mjs';
 import * as grants from './grants.mjs';
 import * as fsguard from './fsguard.mjs';
+import { wsUrlOf, wsHeadersOf, wsUrlWithToken } from './onebot.mjs';
 import * as snapshots from './snapshots.mjs';
 import * as backup from './backup.mjs';
 import * as exec from './exec.mjs';
@@ -4244,7 +4245,8 @@ async function proactiveTick() {
 const seen = new Set();
 
 async function connectWs() {
-  const WS_URL = () => `ws://${napHost()}:${SETUP.onebot.wsPort}`;
+  const WS_URL = () => wsUrlWithToken(SETUP, napHost());
+  const WS_HDR = () => wsHeadersOf(SETUP);
   let backoff = 1000;
   let fails = 0;        // 连着失败几次（只管退避 + 限流）
   let downAt = 0;       // 这轮掉线的起点，用来算断了多久
@@ -4254,7 +4256,7 @@ async function connectWs() {
     try {
       await new Promise((resolve, reject) => {
         if (fails === 0 && !downAt) log('connecting', WS_URL());
-        const ws = new WebSocket(WS_URL());
+        const ws = new WebSocket(WS_URL(), { headers: WS_HDR() });
         ws.addEventListener('open', () => {
           const gap = downAt ? Math.round((Date.now() - downAt) / 1000) : 0;
           backoff = 1000;

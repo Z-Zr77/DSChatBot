@@ -1874,7 +1874,7 @@ const server = http.createServer(async (req, res) => {
           ownerUin: String(s.qq?.ownerUin || s.qq?.master || ''),
           uin: String(s.qq?.uin || ''),
           name: String(s.qq?.name || ''),
-          protocol: s.qq?.protocol === 'snowluma' ? 'snowluma' : 'napcat',
+          protocol: s.qq?.protocol === 'napcat' ? 'napcat' : 'snowluma',
           napcatDir: String(s.napcat?.dir || ''),
           snowlumaDir: String(s.snowluma?.dir || ''),
           dataDir: PATHS.data,
@@ -1891,9 +1891,16 @@ const server = http.createServer(async (req, res) => {
       }
       if (b.clientDir !== undefined) {
         const dir = String(b.clientDir || '').trim().slice(0, 400);
-        const protocol = patch.qq.protocol || (s.qq && s.qq.protocol === 'snowluma' ? 'snowluma' : 'napcat');
+        const protocol = patch.qq.protocol || (s.qq && s.qq.protocol === 'napcat' ? 'napcat' : 'snowluma');
         if (protocol === 'snowluma') patch.snowluma = { ...(s.snowluma || {}), dir };
         else patch.napcat = { dir };
+      }
+      if (b.onebot !== undefined) {
+        const ob = b.onebot || {};
+        patch.onebot = { ...(s.onebot || {}) };
+        if (ob.wsUrl !== undefined) patch.onebot.wsUrl = String(ob.wsUrl || '').trim().slice(0, 200);
+        if (ob.accessToken !== undefined) patch.onebot.accessToken = String(ob.accessToken || '').trim().slice(0, 200);
+        if (ob.wsPort !== undefined) patch.onebot.wsPort = Number(ob.wsPort) || 3001;
       }
       if (b.ownerUin !== undefined) {
         const owner = String(b.ownerUin || '').replace(/\D/g, '').slice(0, 12);
@@ -2514,8 +2521,8 @@ __CONSOLE_STYLE__
     <div class="row" style="gap:10px;margin-bottom:8px">
       <span class="dim">协议端</span>
       <select id="qqProtocol" aria-label="协议端" onchange="paintQqGuide()" style="max-width:280px">
-        <option value="napcat">NapCat</option>
-        <option value="snowluma">SnowLuma</option>
+        <option value="snowluma">SnowLuma（推荐）</option>
+        <option value="napcat">NapCat（旧版，扫码）</option>
       </select>
     </div>
     <div id="qqGuideBody" class="dim" style="line-height:1.75"></div>
@@ -2524,10 +2531,19 @@ __CONSOLE_STYLE__
       <button class="btn" onclick="saveQqClient()">保存协议和路径</button>
     </div>
     <p class="dim" id="qqClientHint" style="margin:8px 0 0"></p>
+    <div class="cfgrpbody" style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
+      <p class="dim" style="margin:0 0 8px">连不上时先看这两个。SnowLuma 的 token 在它的 <code>snowluma-data/config/onebot_*.json</code> 里；NapCat 一般不用填。</p>
+      <div class="row" style="gap:10px">
+        <input id="obUrl" placeholder="ws 地址（留空 = ws://127.0.0.1:3001）" style="flex:1">
+        <input id="obToken" placeholder="access token（可留空）" style="flex:1">
+        <button class="btn ghost" onclick="saveOnebot()">保存连接参数</button>
+      </div>
+      <p class="dim" id="obHint" style="margin:8px 0 0"></p>
+    </div>
   </div>
   <div class="card" id="qqLoginCard">
     <div class="toolbar"><b>登录 QQ</b><span class="spacer"></span><span id="qqLoginStage" class="dim">未开始</span></div>
-    <p class="dim" style="margin:6px 0 10px">只有扫码这一条路——NapCat 拉起 QQ 时是无窗口的，没有地方输密码。但<b>扫一次就够</b>：登录态会留在本机，之后开机自动登回去。</p>
+    <p class="dim" style="margin:6px 0 10px" id="qqLoginHow">SnowLuma 用<b>它自己的登录页</b>（<code>127.0.0.1:5099</code>）用账号密码登一次；NapCat 只能扫码。两种都是<b>登一次就够</b>，登录态留在本机。</p>
     <div class="row" style="gap:10px;margin-bottom:10px">
       <button class="btn" onclick="qqScanNow(this)">扫码登录 QQ</button>
       <button class="ghost" onclick="qqLoginRefresh()">检查一下</button>
@@ -3188,11 +3204,24 @@ async function loadQqGuide() {
     const s = await api('/api/setup');
     QQ_DIRS.napcat = (s && s.napcatDir) || '';
     QQ_DIRS.snowluma = (s && s.snowlumaDir) || '';
+    const obUrl = document.getElementById('obUrl');
+    const obTok = document.getElementById('obToken');
+    if (obUrl && document.activeElement !== obUrl) obUrl.value = (s && s.onebot && s.onebot.wsUrl) || '';
+    if (obTok && document.activeElement !== obTok) obTok.value = (s && s.onebot && s.onebot.accessToken) || '';
     const sel = document.getElementById('qqProtocol');
     if (sel) sel.value = s && s.protocol === 'snowluma' ? 'snowluma' : 'napcat';
     paintQqGuide();
   } catch (e) {}
 }
+async function saveOnebot(){
+  const url = (document.getElementById('obUrl') || {}).value || '';
+  const tok = (document.getElementById('obToken') || {}).value || '';
+  try {
+    await api('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ onebot: { wsUrl: url, accessToken: tok } }) });
+    toast('连接参数已保存；改完要重启桥接才生效', true);
+  } catch (e) { toast('保存失败：' + (e.message || e)); }
+}
+
 async function saveQqClient() {
   const sel = document.getElementById('qqProtocol');
   const protocol = sel && sel.value === 'snowluma' ? 'snowluma' : 'napcat';
@@ -4309,6 +4338,9 @@ async function resetBudget(){
 const QQ_STAGE_TXT = { idle: '未开始', booting: '内核起来了，等扫码', login: '内核起来了，等扫码', online: '已登录' };
 async function qqLoginRefresh(){
   try {
+    // 已经有码就顺手画出来（旧码也算，扫之前一直有效）
+    const s2 = await api('/api/state').catch(function(){ return null; });
+    if (s2 && s2.qr && s2.qr.exists && $('#qrSlot')) { __qrOpen = true; paintQr(s2); }
     const st = await api('/api/qq/login/status').catch(function(){ return null; });
     const el = document.getElementById('qqLoginStage');
     if (el && st && st.ok) {
@@ -4322,13 +4354,15 @@ async function qqScanNow(btn){
   const msg = document.getElementById('qqLoginMsg');
   if (btn) { btn.disabled = true; btn.textContent = '正在拉起内核…'; }
   if (msg) msg.textContent = '';
+  // 关键：paintQr 会按 __qrOpen 决定显不显示二维码区，默认是关的。
+  __qrOpen = true;
   try {
     await api('/api/qr/refresh', { method: 'POST' }).catch(function(){});
-    // 内核起来后码会写进 cache/qrcode.png，轮询几次等它出
+    // 内核起来后码会写进 cache/qrcode.png，轮询等它出；一有就画
     for (let i = 0; i < 24; i++) {
-      await new Promise(function(r){ setTimeout(r, 1500); });
       const st = await api('/api/state').catch(function(){ return null; });
       if (st && st.qr && st.qr.exists) { STATE = st; if ($('#qrSlot')) paintQr(st); break; }
+      await new Promise(function(r){ setTimeout(r, 1500); });
     }
     if (msg) msg.textContent = '码在上面，扫一下就行';
   } catch (e) { if (msg) msg.textContent = String(e.message || e); }

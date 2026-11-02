@@ -22,9 +22,10 @@ t('QQ 页：扫码入口在，且有二维码容器', () => {
   assert.ok(!qqSection.includes('账号密码登录'), 'QQ 页还写着密码登录');
 });
 
-t('只扫一次的说法要写清楚', () => {
-  assert.ok(/扫一次/.test(qqSection), '页面没有说明"扫一次就够"');
-  assert.ok(/自动登/.test(qqSection), '页面没有说明之后会自动登录');
+t('登一次就够的说法要写清楚', () => {
+  // SnowLuma 用网页里账号密码登一次，NapCat 扫码一次；两种都只需一次
+  assert.ok(/扫一次|登一次/.test(qqSection), '页面没有说明"一次就够"');
+  assert.ok(/登录态/.test(qqSection), '页面没有说明登录态会留在本机');
 });
 
 t('扫码动作：先拉起内核，再等码出来', () => {

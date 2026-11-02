@@ -66,6 +66,7 @@ const ALL = [
   ['poc-doctor-test', '自检：十项最基础的东西，硬伤和可选项要分得清'],
   ['poc-wizard-test', '第一次见面向导：没配好才出来，配好了不许再弹'],
   ['poc-channels-test', '通道层：她住在桥接里，QQ 只是出口之一'],
+  ['poc-onebot-test', 'OneBot 连接参数：地址归一化与 token 头'],
   ['poc-persona-default-test', '第一次启动自动生成人设（新人第一次打开别是空壳）'],
 ];
 

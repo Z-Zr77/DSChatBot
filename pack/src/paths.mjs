@@ -107,8 +107,8 @@ export function ensureDirs() {
 
 const DEFAULT_SETUP = {
   api: { baseUrl: 'https://api.deepseek.com/v1', key: '', model: 'deepseek-chat', temperature: 0.85, maxTokens: 900 },
-  qq: { uin: '', ownerUin: '', name: '' },
-  onebot: { wsPort: 3001, httpPort: 3000 },
+  qq: { uin: '', ownerUin: '', name: '', protocol: '' },
+  onebot: { wsPort: 3001, httpPort: 3000, wsUrl: '', accessToken: '' },
   features: { voice: false, draw: false, qzone: false, browse: false, proactive: true },
   napcat: { dir: '' },
   snowluma: { dir: '' },
@@ -160,7 +160,12 @@ export function looksLikeSnowLuma(dir) {
 }
 
 export function qqProtocolOf(setup) {
-  return setup && setup.qq && setup.qq.protocol === 'snowluma' ? 'snowluma' : 'napcat';
+  // 没显式选过协议端时：配过 NapCat 目录的沿用 NapCat（别把正在用的弄坏），
+  // 全新机器默认 SnowLuma（不再往 NapCat 那条路上引）。
+  const p = setup && setup.qq && String(setup.qq.protocol || '');
+  if (p === 'snowluma' || p === 'napcat') return p;
+  const ncDir = setup && setup.napcat && String(setup.napcat.dir || '');
+  return ncDir ? 'napcat' : 'snowluma';
 }
 
 export function qqClientDirOf(setup) {
