@@ -1522,6 +1522,34 @@ const server = http.createServer(async (req, res) => {
   try { return send(res, 200, { ok: true, uin, ...memory.consolidate(uin) }); }
   catch (e) { return send(res, 500, { ok: false, error: e.message }); }
 }
+  // 记忆银河：所有人的记忆一次给全（不分人翻页）——谁是主人单独标出来
+  if (p === '/api/memory/galaxy' && req.method === 'GET') {
+    try {
+      const st = loadSetup();
+      const owner = String((st.qq || {}).ownerUin || '').trim();
+      const dir = path.join(RQ_AGENT, 'memory', 'people');
+      let files = [];
+      try { files = fs.readdirSync(dir).filter(f => f.endsWith('.json') && !f.includes('.bak')); } catch {}
+      const names = (() => { try { return JSON.parse(fs.readFileSync(path.join(RQ, 'names.json'), 'utf8')) || {}; } catch { return {}; } })();
+      const people = [];
+      for (const f of files) {
+        const uin = f.replace(/\.json$/, '');
+        if (!memory.validUin(uin)) continue;
+        const items = memory.list(uin) || [];
+        if (!items.length && uin !== owner) continue;
+        const nm = names[uin] && names[uin].name ? String(names[uin].name) : '';
+        people.push({
+          uin,
+          name: nm || (uin === 'local' ? '本机（还没填 QQ）' : uin),
+          isOwner: !!owner && uin === owner,
+          items,
+        });
+      }
+      people.sort((a, b) => (b.isOwner ? 1 : 0) - (a.isOwner ? 1 : 0) || b.items.length - a.items.length);
+      return send(res, 200, { ok: true, owner, people, total: people.reduce((n, x) => n + x.items.length, 0) });
+    } catch (e) { return send(res, 500, { ok: false, error: e.message }); }
+  }
+
   if (p === '/api/memory') {
       if (req.method === 'GET') {
         // 不带 uin 时退回主人号；全新安装还没填主人号，记忆就记在 local 名下
@@ -2636,10 +2664,12 @@ __CONSOLE_STYLE__
 </section>
 
 <section id="memory">
-  <div class="toolbar"><label for="memWho">记住了谁</label><select id="memWho" class="w200" onchange="loadMem();paintOwnerTag(S)"></select>
-    <span class="warnchip" id="memOwnerTag" style="display:none">主人号</span></div>
-  <div class="tabs" role="tablist" aria-label="记忆内容">
-    <button id="tab-mem" role="tab" aria-selected="true" aria-controls="memPane" onclick="memoryTab('memPane')">记忆</button>
+  <div class="toolbar">
+    <label for="memOwnerSel">谁是主人</label>
+    <select id="memOwnerSel" class="w200" onchange="setOwnerFromGalaxy(this.value)"></select>
+    <span class="hint" id="memOwnerHint">选中的人会被标成 👑，她的记忆里只有主人能动电脑、看记录</span>
+    <span class="spacer"></span>
+    <span class="dim" id="memGalaxyStats"></span>
   </div>
   <div id="memPane" role="tabpanel" aria-labelledby="tab-mem">
     <div class="card">
@@ -2649,6 +2679,7 @@ __CONSOLE_STYLE__
           <button class="ghost" aria-label="放大图谱" onclick="zoomMemory(1.25)">＋</button><button class="ghost" aria-label="缩小图谱" onclick="zoomMemory(0.8)">－</button><button class="ghost" onclick="fitMemory()">适应画布</button></div>
         <div class="graph-frame"><svg id="memGraph" viewBox="0 0 1000 600" aria-label="记忆关系图"></svg>
           <div id="memGraphEmpty" class="graph-empty dim"></div>
+          <aside id="memPeople" class="card" hidden></aside>
           <aside id="memDetail" class="card" hidden><button class="ghost" onclick="closeMemoryDetail()">关闭详情</button><p id="memDetailText"></p><p id="memDetailMeta" class="dim"></p><button class="btn" onclick="editSelectedMemory()">编辑这条</button></aside></div>
         <p class="hint">大节点为核心记忆。实线：旧说法 → 修正；虚线：原因 → 结果。只显示已记录的关系，无关系的节点独立显示。</p>
       </div>
@@ -3518,7 +3549,90 @@ async function describeRef(){
 async function loadPersona(){ const r = await api('/api/persona'); $('#personaText').value = r.text; $('#pState').textContent = r.text.length + ' 字'; }
 async function savePersona(){ await api('/api/persona',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:$('#personaText').value})}); $('#pState').textContent = '已保存 · 下一条生效'; }
 
+// 记忆页 = 一张星图：所有人的记忆都在这里，主人那团戴 👑
+let GALAXY = [], GALAXY_SEL = '';
+function galaxyPerson(uin) { return (GALAXY || []).find(p => String(p.uin) === String(uin)) || null; }
+function showGalaxyPerson(uin) {
+  GALAXY_SEL = String(uin || '');
+  const p = galaxyPerson(GALAXY_SEL);
+  const box = $('#memPeople');
+  if (!box) return;
+  if (!p) { box.hidden = true; box.innerHTML = ''; return; }
+  box.hidden = false;
+  const rows = (p.items || []).map(it =>
+    '<div class="mem-row' + (it.stale ? ' stale' : '') + '">' +
+      '<span class="mem-kind k-' + (it.kind || 'trivia') + '">' + (it.kind === 'core' ? '核心' : it.kind === 'important' ? '重要' : it.kind === 'fact' ? '事实' : '琐事') + '</span>' +
+      '<span class="mem-txt">' + esc(it.text) + '</span>' +
+      '<button class="ghost" data-uin="' + esc(String(p.uin)) + '" data-idx="' + Number(it.index) + '" onclick="forgetGalaxyFromBtn(this)">删</button>' +
+    '</div>').join('');
+  box.innerHTML = '<div class="row" style="justify-content:space-between;align-items:center">'
+    + '<b>' + (p.isOwner ? '👑 ' : '') + esc(p.name) + '</b>'
+    + '<span class="dim">' + (p.items || []).length + ' 条</span></div>'
+    + (p.isOwner ? '' : '<button class="ghost" style="margin:6px 0 4px" data-uin="' + esc(String(p.uin)) + '" onclick="ownerFromBtn(this)">设为主人</button>')
+    + '<div class="mem-list">' + (rows || '<p class="dim">这个人还没有记忆</p>') + '</div>';
+}
+function forgetGalaxyFromBtn(el) {
+  const uin = el && el.getAttribute ? el.getAttribute('data-uin') : '';
+  const idx = Number(el && el.getAttribute ? el.getAttribute('data-idx') : -1);
+  if (uin && idx >= 0) forgetGalaxyOne(uin, idx);
+}
+function ownerFromBtn(el) {
+  const uin = el && el.getAttribute ? el.getAttribute('data-uin') : '';
+  if (uin) setOwnerFromGalaxy(uin);
+}
+async function forgetGalaxyOne(uin, index) {
+  try {
+    await api('/api/memory', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uin, index }) });
+    await loadMem();
+    showGalaxyPerson(uin);
+  } catch (e) { toast('删除失败：' + e.message); }
+}
+
+document.addEventListener('click', (ev) => {
+  const g = ev.target && ev.target.closest ? ev.target.closest('#memGraph .mem-cluster') : null;
+  if (g) { showGalaxyPerson(g.getAttribute('data-uin')); }
+}, true);
+
+async function setOwnerFromGalaxy(uin){
+  const v = String(uin || '').trim();
+  try {
+    await api('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ownerUin: v }) });
+    toast(v ? '已把 ' + v + ' 设成主人' : '主人号清空了');
+    await loadState();
+    await loadMem();
+  } catch (e) { toast('没存上：' + e.message); }
+}
+
 async function loadMem(){
+  try {
+    const g = await api('/api/memory/galaxy');
+    const people = (g && g.people) || [];
+    GALAXY = people;
+    const flat = [];
+    for (const p of people) {
+      for (const it of (p.items || [])) {
+        flat.push(Object.assign({}, it, { _uin: p.uin, _person: p.name, _isOwner: !!p.isOwner }));
+      }
+    }
+    if (window.renderMemoryGraph) window.renderMemoryGraph(flat);
+    const sel = $('#memOwnerSel');
+    if (sel) {
+      const cur = String((g && g.owner) || '');
+      sel.innerHTML = '<option value="">还没设主人</option>' + people.map(p =>
+        '<option value="' + p.uin + '"' + (p.uin === cur ? ' selected' : '') + '>' +
+        (p.uin === 'local' ? '本机（还没填 QQ）' : p.name + '（' + p.uin + '）') + '</option>').join('');
+    }
+    const st = $('#memGalaxyStats');
+    if (st) st.textContent = '共 ' + flat.length + ' 条 · ' + people.length + ' 个人';
+    return;
+  } catch (e) {}
+  // 接口挂了也别白屏：下面这段是旧的按人拉取逻辑，只在 /api/memory/galaxy 不通时才走
+  if (!$('#memWho')) {
+    try { renderMemoryGraph([]); } catch (e2) {}
+    const mt0 = $('#memTable');
+    if (mt0) mt0.innerHTML = '<tr><td class="dim">读不到记忆</td></tr>';
+    return;
+  }
   let uin = $('#memWho').value || (S.people && S.people[0]) || '';
   if (!uin && S && !S.ownerUin) uin = 'local';   // 全新安装：记忆记在 local 名下
   if (!uin) { $('#memTable').innerHTML = '<tr><td class="dim">还没有任何人的记忆</td></tr>'; renderMemoryGraph([]); return; }
