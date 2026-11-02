@@ -466,7 +466,7 @@ function askPass(){
     d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:20px';
     d.innerHTML = '<div style="background:#15181f;border:1px solid #262b36;border-radius:16px;padding:20px;width:100%;max-width:340px">'
       + '<div style="font-size:16px;font-weight:600;margin-bottom:6px">输入控制台密码</div>'
-      + '<div style="color:#8b93a1;font-size:13px;margin-bottom:12px">电脑端「状态 → 手机访问」里能看到这个密码</div>'
+      + '<div style="color:#8b93a1;font-size:13px;margin-bottom:12px">电脑上打开控制台不用这个密码。忘了的话，回到这台电脑上开控制台即可。</div>'
       + '<input id="pwIn" type="password" inputmode="numeric" autocomplete="current-password" placeholder="密码" style="width:100%;box-sizing:border-box;padding:12px;border-radius:10px;border:1px solid #2b313d;background:#0f1217;color:#e6e9ef;font-size:16px">'
       + '<div id="pwErr" style="color:#e2777a;font-size:13px;height:18px;margin-top:6px"></div>'
       + '<button id="pwGo" style="width:100%;margin-top:8px;padding:12px;border:0;border-radius:10px;background:linear-gradient(180deg,#3b82f6,#2563eb);color:#fff;font-size:15px">进入</button></div>';
@@ -677,7 +677,7 @@ function napcatGuide(S){
   const dir = (S && S.napcatDir) ? String(S.napcatDir) : '';
   return '<div class="hint">要用 QQ 聊，得先装 <b>QQ 内核（NapCat，开源免费）</b>：'
     + '<a href="https://github.com/NapNeko/NapCatQQ/releases" target="_blank" rel="noopener">去下载</a>，装好后'
-    + '在设置里把目录填成它所在的位置（里面有 launcher.bat 那一层），或者右键托盘图标 →「设置向导」直接一键装。'
+    + '在这一页点「QQ / NapCat 向导」，把目录填成它所在的位置（里面有 launcher.bat 那一层）。托盘菜单里也有同一项。'
     + (dir ? '（现在找的是 <code>' + dir + '</code>）' : '') + '</div>';
 }
 function qrClosedCard(S){return '<div class="card"><div class="row" style="justify-content:space-between"><b>QQ 接入已关闭</b><button class="pri" onclick="qqStartScan(this)">启动扫码登录 QQ</button></div><div class="hint">聊天用 DSChat 就够，要用 QQ 时再点右边这个按钮，才会拉起内核并出码。</div>' + napcatGuide(S) + '</div>';}
@@ -947,7 +947,7 @@ p{color:#8b93a1;font-size:12px;margin:10px 0 0}</style></head>
 <body><form class="b" onsubmit="return go(event)"><h1>输入控制台密码</h1>
 <input id="p" type="password" autocomplete="current-password" placeholder="密码" autofocus>
 <button>进入</button><div id="m" style="color:#e2777a;font-size:13px;margin-top:8px;min-height:18px"></div>
-<p>这个密码只管「手机 / 局域网其它设备」打开控制台。电脑上直接打开不需要输。<br>忘了密码：在电脑端「设置 → 手机访问」里能看到或直接清空重设。</p></form>
+<p>这个密码只管「手机 / 局域网其它设备」打开控制台。电脑上直接打开不需要输。<br>忘了密码：回到这台电脑上打开控制台即可（本机不用这个密码）。</p></form>
 <script>async function go(e){e.preventDefault();const p=document.getElementById('p').value;
 const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pass:p})});
 const btn=document.querySelector('button'),msg=document.getElementById('m');
@@ -1176,8 +1176,8 @@ const server = http.createServer(async (req, res) => {
         const hasKey = !!String(a.key || '').trim();
         add('api', hasKey ? 'ok' : 'fail', '大模型接口',
           hasKey ? (a.model || '（没写模型）') + ' @ ' + (a.baseUrl || '默认地址') + ' · key 尾号 ' + String(a.key).slice(-4) : '还没有 API Key',
-          hasKey ? '' : '去「设置 → 大脑（API）」填一个 key，再点「测试连接」');
-      } catch { add('api', 'fail', '大模型接口', '读不到 setup.json', '去「设置」把 API 重填一次'); }
+          hasKey ? '' : '去「模型页」填一个 key，再点「测试连接」');
+      } catch { add('api', 'fail', '大模型接口', '读不到 setup.json', '去「模型页」把 API 重填一次'); }
       try {
         const probe = path.join(DIR, '.doctor-probe');
         fs.writeFileSync(probe, 'ok'); fs.unlinkSync(probe);
@@ -1200,7 +1200,7 @@ const server = http.createServer(async (req, res) => {
         const j = await r.json();
         const ch = (j.channels || []).find((x) => x.id === 'qq') || j;
         add('qq', ch.online ? 'ok' : 'warn', 'QQ 通道（可选）', ch.online ? '已连上' : '没连上',
-          ch.online ? '' : '不影响她用：QQ 没连时消息走本地窗口。要连就去设置里扫码');
+          ch.online ? '' : '不影响她用：QQ 没连时消息走本地窗口。要连就去「QQ」页扫码');
       } catch { add('qq', 'warn', 'QQ 通道（可选）', '查不到状态', '不影响使用'); }
       try {
         const files = fs.existsSync(MEMDIR) ? fs.readdirSync(MEMDIR) : [];
@@ -1212,8 +1212,8 @@ const server = http.createServer(async (req, res) => {
         const su = loadSetup() || {}; const w = su.work || {};
         const on = w.toolsEnabled === true;
         add('work', on ? 'ok' : 'warn', '动手能力', on ? '已允许（' + (w.execMode || 'ask') + '）' : '关着，她现在只能聊天',
-          on ? '' : '要用就去「设置 → 允许她动电脑」打开，再「进入工作模式」选文件夹');
-      } catch { add('work', 'warn', '动手能力', '读不到设置', '去「设置」看一下'); }
+          on ? '' : '要用就去「模型页」底部打开「允许她动电脑」，再「进入工作模式」选文件夹');
+      } catch { add('work', 'warn', '动手能力', '读不到设置', '去「模型页」看一下'); }
       try {
         const st2 = fs.statfsSync ? fs.statfsSync(DIR) : null;
         const freeMB = st2 ? Math.round((st2.bfree * st2.bsize) / 1048576) : null;
@@ -1358,7 +1358,7 @@ const server = http.createServer(async (req, res) => {
         let aliKey = '';
         try { const kp = path.join(PATHS.data, 'aliyun.key'); if (fs.existsSync(kp)) aliKey = String(fs.readFileSync(kp, 'utf8')).trim(); } catch {}
         const chosen = resolveVision(api0, vc, aliKey || process.env.DASHSCOPE_API_KEY || '', (settings.load().fallback || {}).vision !== false);
-        if (chosen.mode === 'none') return send(res, 400, { ok: false, err: '请先在设置 → 看图里配置可用模型' });
+        if (chosen.mode === 'none') return send(res, 400, { ok: false, err: '请先在「模型页」的看图里配置可用模型' });
         const { baseUrl, model, key } = chosen;
         const ext = path.extname(f).toLowerCase();
         const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
@@ -1843,6 +1843,48 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, ownerUin: patch.qq.ownerUin || '', name: patch.qq.name || '' });
     }
 
+    if (p === '/api/open-wizard' && req.method === 'POST') {
+      try {
+        const pf = path.join(PATHS.data, 'notify.port');
+        let port = 0;
+        try { port = parseInt(String(fs.readFileSync(pf, 'utf8') || '').trim(), 10); } catch {}
+        if (port) {
+          const j = await new Promise((resolve, reject) => {
+            const rq = http.request({
+              host: '127.0.0.1', port, path: '/open-wizard', method: 'POST', timeout: 4000,
+            }, (rs) => {
+              let buf = '';
+              rs.on('data', (c) => { buf += c; });
+              rs.on('end', () => { try { resolve(JSON.parse(buf || '{}')); } catch { resolve({ ok: false }); } });
+            });
+            rq.on('error', reject);
+            rq.on('timeout', () => rq.destroy(new Error('超时')));
+            rq.end();
+          });
+          if (j && j.ok) return send(res, 200, { ok: true, switched: true });
+        }
+      } catch {}
+      try {
+        const { pathToFileURL } = await import('node:url');
+        const m = await import(pathToFileURL(path.join(APP, 'launch.mjs')).href);
+        const pending = m && m.startWizard ? m.startWizard() : Promise.resolve();
+        pending.catch(() => {});
+        const url = 'http://127.0.0.1:' + (Number(process.env.QQBOT_WIZARD_PORT) || 3071) + '/';
+        const t0 = Date.now();
+        let up = false;
+        while (Date.now() - t0 < 8000) {
+          try {
+            const r = await fetch(url, { signal: AbortSignal.timeout(700) });
+            if (r.ok) { up = true; break; }
+          } catch {}
+          await new Promise((r) => setTimeout(r, 250));
+        }
+        return send(res, 200, up ? { ok: true, url } : { ok: false, err: '向导没起来' });
+      } catch (e) {
+        return send(res, 200, { ok: false, err: String((e && e.message) || e).slice(0, 160) });
+      }
+    }
+
     if (p === '/api/open-data' && req.method === 'POST') {
       try {
         spawn('explorer.exe', [PATHS.data], { detached: true, stdio: 'ignore' }).unref();
@@ -2138,6 +2180,8 @@ body{margin:0;background:var(--bg) radial-gradient(1100px 520px at 18% -12%,#151
   .wz-line{ color:#9fb0c2; }
   .wz-line.bad{ color:#e2776b; }
   .wz-line.her{ color:#8fd0a0; }
+  .wz-adv{ margin:0 0 10px; color:#9fb0c2; font-size:12.5px; }
+  .wz-adv summary{ cursor:pointer; margin-bottom:8px; }
 nav{width:212px;flex:0 0 212px;height:100vh;padding:14px 12px 18px;border-right:1px solid var(--line);background:linear-gradient(180deg,#0e1218,#0a0c10 65%);display:flex;flex-direction:column;gap:3px;overflow-y:auto;scrollbar-width:thin}
 .brand{display:flex;align-items:center;gap:10px;padding:4px 8px 14px;margin-bottom:8px;border-bottom:1px solid var(--line)}
 .brand .logo{width:34px;height:34px;flex:0 0 34px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:19px;line-height:1;background:linear-gradient(160deg,#1e2a40,#111620);border:1px solid var(--line2);box-shadow:0 6px 14px -10px #000}
@@ -2368,6 +2412,7 @@ __CONSOLE_STYLE__
 <section id="qq">
   <div class="card scan-entry" id="scanEntry">
     <button class="btn scan-button" onclick="showQqScan()">扫码登录 QQ</button>
+    <button class="ghost" onclick="openQqWizard()">QQ / NapCat 向导</button>
     <button class="ghost" id="qrPin" aria-pressed="false" onclick="toggleQrPin()">固定扫码入口</button>
     <span id="qqSummary" class="dim"></span>
   </div>
@@ -2741,7 +2786,7 @@ async function renderNet(){
   }
   if (!n.lan) {
     box.innerHTML = '<div class="card"><b>手机访问</b> <span class="dim">未开启</span>'
-      + '<div class="dim" style="margin-top:6px">想让手机浏览器打开这个控制台：去「设置 → 手机访问」把开关打开，然后重启程序。手机要和这台电脑连同一个 Wi-Fi。</div></div>';
+      + '<div class="dim" style="margin-top:6px">想让手机浏览器打开这个控制台：在配置里打开手机访问，然后重启程序。手机要和这台电脑连同一个 Wi-Fi。</div></div>';
     return;
   }
   const u = (n.urls && n.urls[0]) || '';
@@ -2998,6 +3043,18 @@ async function qrRefresh(){
   }
   toast('还没出新码，等一下再点一次', false);
 }
+async function openQqWizard(){
+  toast('正在打开 QQ 向导…', true);
+  try {
+    const r = await api('/api/open-wizard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    if (r && r.url) {
+      try { const w = window.open(r.url, 'dschat_wizard'); if (!w) location.href = r.url; } catch (e) { location.href = r.url; }
+      return;
+    }
+    if (r && r.switched) { toast('向导已打开', true); return; }
+    toast((r && r.err) || '向导没打开', false);
+  } catch (e) { toast('向导没打开：' + String((e && e.message) || e), false); }
+}
 function paintQr(S, l){
   const slot = $('#qrSlot');
   slot.hidden = !__qrOpen;
@@ -3006,7 +3063,7 @@ function paintQr(S, l){
       + '<button class="btn" onclick="qqStartScan()">启动扫码登录 QQ</button></div>'
       + '<p class="dim" style="margin:0">QQ 接入未开启。点击启动后拉起内核并获取二维码。</p></div>';
     slot.dataset.built=''; return; }
-  if (l) { slot.innerHTML = '<div class="card dim">QQ 已登录，需要重新扫码时使用托盘的设置向导。</div>';  slot.dataset.built = ''; slot.dataset.at = ''; return; }
+  if (l) { slot.innerHTML = '<div class="card dim">QQ 已登录。要重装路径或重新扫码，点这一页的「QQ / NapCat 向导」，或托盘里的同一项。</div>';  slot.dataset.built = ''; slot.dataset.at = ''; return; }
   if (slot.dataset.built !== '1') {
     slot.innerHTML = '<div class="card">'
       + '<div class="toolbar"><b>扫码登录 QQ</b><span class="pill" id="qrPill"></span><span class="spacer"></span>'
@@ -3050,7 +3107,7 @@ function paintQr(S, l){
     } else if (typeof napcatGuide === 'function' && S && S.napcatReady === false) {
       ph.innerHTML = napcatGuide(S);
     } else {
-      ph.textContent = '内核还没出码。点右上「立即换一张」，或从托盘打开设置向导确认 NapCat 路径。';
+      ph.textContent = '内核还没出码。点右上「立即换一张」，或打开「QQ / NapCat 向导」确认路径。';
     }
   }
 }
@@ -3935,18 +3992,20 @@ async function maybeWizard(){
       + '  <label class="wz-l">关系/身份<select id="wzRelationship"><option>女友</option><option>老婆</option><option>朋友</option><option>自定义</option></select></label>'
       + '  <label class="wz-l">自定义身份（选择自定义时填写）<input id="wzRelationshipCustom" maxlength="40"></label>'
       + '  <label class="wz-l">你的 QQ（可以留空，留空就只在电脑上说）<input id="wzUin" value="' + esc(uin0) + '" placeholder="例如 123456789" inputmode="numeric"></label>'
+      + '  <details class="wz-adv"><summary>高级</summary>'
       + '  <label class="wz-l">大脑地址<input id="wzBase" value="https://api.deepseek.com/v1"></label>'
       + '  <label class="wz-l">模型<input id="wzModel" value="deepseek-flash"></label>'
+      + '  </details>'
       + '  <label class="wz-l">API Key（没有它她不会说话）<input id="wzKey" type="password" placeholder="sk-..."></label>'
       + '  <div class="wz-btns"><button class="pri btn" id="wzGo">保存，说第一句</button>'
-      + '  <button class="ghost btn" id="wzSkip">先不弄，我自己去设置里填</button></div>'
+      + '  <button class="ghost btn" id="wzSkip">去模型页自己填</button></div>'
       + '  <div id="wzLog" class="wz-log"></div>'
       + '</div>';
     document.body.appendChild(box);
     const relationship = s.relationship || '女友';
     $('#wzRelationship').value = ['女友', '老婆', '朋友'].includes(relationship) ? relationship : '自定义';
     $('#wzRelationshipCustom').value = $('#wzRelationship').value === '自定义' ? relationship : '';
-    $('#wzSkip').onclick = function(){ box.remove(); };
+    $('#wzSkip').onclick = function(){ box.remove(); goPage('config'); };
     $('#wzGo').onclick = wzSave;
     setTimeout(function(){ try { $('#wzName').focus(); } catch (e) {} }, 100);
   } catch (e) {}
@@ -3988,7 +4047,7 @@ async function wzSave(){
       const st = await api('/api/state').catch(function(){ return null; });
       if (st && st.bridge && st.bridge.ok) { alive = true; break; }
     }
-    if (!alive) { wzLine('桥接没起来：去「设置」看看，或者点上面的「重启桥接」。', 'bad'); if (go) { go.disabled = false; go.textContent = '再试一次'; } return; }
+    if (!alive) { wzLine('桥接没起来：去「日志」页看看，或者点「重启桥接」。', 'bad'); if (go) { go.disabled = false; go.textContent = '再试一次'; } return; }
     wzLine('她起来了。跟她说第一句——');
     await api('/api/chat/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: '你好呀，你好吗' }) });
     const seen = {};
@@ -4006,12 +4065,19 @@ async function wzSave(){
       }
     }
     if (!got) {
-      wzLine('她没说话：多半是 Key 不对或者地址错了。去「设置 → 大脑」点「测试连接」看看。', 'bad');
+      wzLine('她没说话：多半是 Key 不对或者地址错了。去「模型页」点「测试连接」看看。', 'bad');
       if (go) { go.disabled = false; go.textContent = '再试一次'; go.onclick = wzSave; }
       return;
     }
-    wzLine('能回话就成了。接着改别的吧。');
-    if (go) { go.disabled = false; go.textContent = '进入控制台'; go.onclick = function(){ const e = wzEl(); if (e) e.remove(); location.reload(); }; }
+    wzLine('能回话就成了。接着去聊天窗跟她说吧。');
+    if (go) { go.disabled = false; go.textContent = '打开聊天窗'; go.onclick = function(){
+      const e = wzEl(); if (e) e.remove();
+      const url = 'http://127.0.0.1:3210/';
+      try { if (typeof openChatWindow === 'function') { openChatWindow(); return; } } catch (err) {}
+      try { const w = window.open(url, 'dschat_chat'); if (!w) location.href = url; } catch (err2) { location.href = url; }
+    }; }
+    const skipDone = $('#wzSkip');
+    if (skipDone) { skipDone.textContent = '留在控制台'; skipDone.onclick = function(){ const e = wzEl(); if (e) e.remove(); location.reload(); }; }
   } catch (e) {
     wzLine('出错了：' + String((e && e.message) || e), 'bad');
     if (go) { go.disabled = false; go.textContent = '再试一次'; go.onclick = wzSave; }
