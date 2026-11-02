@@ -158,7 +158,7 @@ const ui = read('ui.mjs');
 
 check('F17 App 通道也记账（noteIncoming 用在 /say）', () => {
   assert.ok(/function noteIncoming\(/.test(bridge));
-  assert.ok(/noteIncoming\(conv, text\)/.test(bridge));
+  assert.ok(/noteIncoming\(conv, (?:text|'\[附件\]')/.test(bridge));
   assert.ok(/noteIncoming\(__localConv\(\), text \|\| note \|\| '\[附件\]', imgPath/.test(bridge));
 });
 

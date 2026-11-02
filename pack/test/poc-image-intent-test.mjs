@@ -146,7 +146,7 @@ t('#21 只有明确点名才算"用他发的那张"', () => {
 // ---------- 六、接线（静态）----------
 t('#22 两条链共用同一个参考图选择函数', () => {
   assert.match(src, /const hisRef = refForClothes\(memKeyOf\(conv\), String\(desc \|\| ''\)\)/);
-  assert.match(src, /const hisRef = refForClothes\(memKeyOf\(conv\), sTxt\)/);
+  assert.match(src, /const hisRef = refForClothes\(memKeyOf\(conv\), sTxt \+ ' ' \+ askTxt\)/);
   assert.doesNotMatch(src, /useHisRef = !!hisRef && \(changing/);
 });
 

@@ -1214,22 +1214,20 @@ const server = http.createServer(async (req, res) => {
       })();
       return;
     }
-    if (p === '/manifest.webmanifest') { send(res, 410, 'gone'); return; }
-  if (false) {
+    if (p === '/manifest.webmanifest') {
       res.writeHead(200, { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(JSON.stringify({
         name: '大肥鱼 · 控制台', short_name: '大肥鱼', start_url: '/m', scope: '/',
         display: 'standalone', background_color: '#0b0d11', theme_color: '#0b0d11',
       }));
     }
-    if (p === '/m' || p === '/mobile') { send(res, 410, '手机端请使用 DSChat App（浏览器页面已下线）'); return; }
-  if (false) {
+    if (p === '/m' || p === '/mobile') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store, must-revalidate', Pragma: 'no-cache' });
       return res.end(MOBILE_HTML);
     }
     if (p === '/') {
       const ua = String(req.headers['user-agent'] || '');
-      const isMobile = false;   // 手机端走 DSChat App，浏览器不再跳 /m
+      const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);   // 手机浏览器直接进手机页
       if (isMobile) { res.writeHead(302, { Location: '/m' }); return res.end(); }
     }
     if (p === '/api/net') {

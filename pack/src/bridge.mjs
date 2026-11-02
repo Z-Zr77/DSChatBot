@@ -998,7 +998,7 @@ function facePrompt() {
   __facePrompt = `\n\n【QQ 小黄脸】想发表情，就在回复最后单独一行写 [[FACE:id]]，只能从下面这张表里选（id + 名字 + 表情）：${list || '13呲牙😁 22白眼🙄 28憨笑😄 79赞👍'}。一次一个，最多一个；平淡的话别硬加，也别每条都配。`;
   return __facePrompt;
 }
-const DRAW_PROMPT = '\n\n【自己画图·先分清画面里有没有你】在回复最后单独一行写标签，两种：\n- `[[画: 描述]]`：画对方想看的东西——某个地方、某家店、某个物件、街景、风景、别人。**默认画面里没有你**，所以别把自己写进去；要是你想让他看见"你在那儿"，就明确写「我在…」+你在干什么（例 `[[画: 我在面馆吃面]]`），那才会画你，视角像朋友拿手机替你拍。\n- `[[自拍: 场景]]`：手机前置自拍，脸是主角（例 `[[自拍: 刚从楼下买完咖啡回来]]`）。对方想看你的脸、要看自拍、要照片时用这个，别用「没有照片」「不方便」推脱——你能拍出来。\n描述里写清「画的是什么、在干什么、什么风格」，二十来字就够；别写"AI 绘画"这类词，也别把整段话塞进去。真要画才画，一次一张；画完记得前面用一句话带过（比如"我给你画了个…"），画不好就自嘲一句。接着刚才那张拍（同一个屋子、只换姿势或镜头）就在场景里带「还在」或「继续」，比如 [[自拍: 还在床上，翻个身]]；换了地方就直接写新地点，比如 [[自拍: 出门到了便利店门口]]。';
+const DRAW_PROMPT = '\n\n【自己画图·先分清画面里有没有你】在回复最后单独一行写标签，两种：\n- `[[画: 描述]]`：画对方想看的东西——某个地方、某家店、某个物件、街景、风景、别人。**默认画面里没有你**，所以别把自己写进去；要是你想让他看见"你在那儿"，就明确写「我在…」+你在干什么（例 `[[画: 我在面馆吃面]]`），那才会画你，视角像朋友拿手机替你拍。\n- `[[自拍: 场景]]`：手机前置自拍，脸是主角（例 `[[自拍: 刚从楼下买完咖啡回来]]`）。对方想看你的脸、要看自拍、要照片时用这个，别用「没有照片」「不方便」推脱——你能拍出来。\n描述里写清「画的是什么、在干什么、什么风格」，二十来字就够；别写"AI 绘画"这类词，也别把整段话塞进去。真要画才画，一次一张；画完记得前面用一句话带过（比如"我给你画了个…"），画不好就自嘲一句。**说完"换了/穿好了/拍好了/发你了"就必须在同一轮带上标签**——只说不发，等于骗他（2026-11-02 她连着说两次"换了换了"却一张没发，用户直接问"她到底会不会参考图"）。做不到就别那么说，改成"还没拍，等下"。接着刚才那张拍（同一个屋子、只换姿势或镜头）就在场景里带「还在」或「继续」，比如 [[自拍: 还在床上，翻个身]]；换了地方就直接写新地点，比如 [[自拍: 出门到了便利店门口]]。';
 
 // 表情通道轮流给：这轮只给「小黄脸」，下轮只给「颜文字」，别让某一种永远不用
 let faceTurn = 0;
@@ -1797,8 +1797,8 @@ async function sendSelfie(conv, scene, extra = {}) {
     } else {
       const sleepy = /睡|躺床|床上|被窝|刚起|半夜|凌晨|困|刚洗完/.test(sTxt + ' ' + (here.what || ''));
       outfit = sleepy
-        ? '家居服：宽松短袖 T 恤 + 睡裤/短裤（不是女仆装）'
-        : '日常便装：简单上衣 + 长裤（不是女仆装）';
+        ? '家居服：宽松短袖 T 恤 + 睡裤/短裤'
+        : '日常便装：简单上衣 + 长裤';
       outfitSrc = 'init';
     }
     // 只在"真的换了"时写状态：她说的/待办落实的；保持原样的不重复写
@@ -1807,16 +1807,32 @@ async function sendSelfie(conv, scene, extra = {}) {
     // outfitSrc=init 是通用默认，不落状态（否则会把她真实的那身覆盖掉）
     log('[selfie] 穿着:', outfit, `src=${outfitSrc}`, changing ? '(这轮提到换)' : '', newWear.why ? `(${newWear.why})` : '');
     // 参考图：只有"这句明确点名他发的那张（这身/这套/照着…）"且最近发的是衣服用途，才当衣服参考
-    const hisRef = refForClothes(memKeyOf(conv), sTxt);
+    // 判"这句点名了他的图"要用**他说的话**：sTxt 是她生成的画面描述，
+    // 里面几乎不会出现"这套/这件/照着"，所以以前永远判不出来。
+    let askTxt = '';
+    try {
+      const rr = chatlog.recent(conv.id, 8) || [];
+      const lastIn = rr.filter(r => r && r.dir === 'in').pop();
+      askTxt = String((lastIn && lastIn.text) || '');
+    } catch {}
+    const hisRef = refForClothes(memKeyOf(conv), sTxt + ' ' + askTxt);
     const useHisRef = !!hisRef;
     const keepIn = cont ? (prev.scene + (prev.look ? `；画面里：${prev.look}` : '')) : '';
     const herRef = self.refFile() || '';
+    // 顺序很重要：seedream 对"第 1 张"的服从度明显更高。
+    // 换装时把他的衣服图放前面，她的形象图放后面（否则模型把她那身女仆装整套搬过来，
+    // 只把颜色换成紫的——2026-11-02 用户实拍对比：除了颜色全不对）。
     const refFiles = useHisRef
-      ? [herRef, hisRef].filter((f) => f && fs.existsSync(f))
+      ? [hisRef, herRef].filter((f) => f && fs.existsSync(f))
       : [];
     if (useHisRef) log('[selfie] 带他发的参考图:', path.basename(hisRef), `purpose=${imageintent.refPurposeOf(sTxt)}`);
+    // 这条说明必须与"具体哪件衣服"无关：他随时会换别的图（连衣裙、外套、制服…），
+    // 所以只讲分工（第1张=这轮穿什么，第2张=她本人），不列任何单品清单。
     const refNote = useHisRef
-      ? '第1张是她本人（对脸、发型）；第2张是他刚发来的参考图——只照它的衣服（款式、颜色、材质、穿法），不要第2张里的人脸、身体和背景，哪怕那是模特或人体模型也只抄衣服。把第2张的衣服穿到第1张的她身上。'
+      ? ('第1张是他发来的衣服——**她这轮穿的只能是第1张里这件**：款式、颜色、材质、长度、袖口、领口、版型全按它来。'
+       + '第2张是她本人，只用它保住脸、发型和发色。'
+       + '她原来那身（包括衣服、鞋、袜、头饰、配饰）一律不要带进来，除非第1张里本来就有。'
+       + '第1张是没有人的商品图/平铺图时，直接把这件衣服穿到第2张的她身上，不要凭空补别的衣物。')
       : '';
     // 这句话里她手里有东西 → 不能再写'举着手机自拍'，否则模型会多画一只举手机的手
     const busyHands = /(拿|抱着|端着|拎|举着|握着|捧着)/.test(sTxt);
@@ -2513,11 +2529,27 @@ function selfieLookLine() {
   } catch { return ''; }
 }
 
+// 他（在 QQ 上）发来的图，落一份到本地，好当"换装参考图"用。
+// 以前只在本地窗口那条路上存路径，QQ 上收到的图看完就扔了，
+// 于是她说"换这套"时找不到他发的图，只能用固定形象图自己发挥。
+let LAST_IN_IMG = '';
+function saveIncomingImage(buf) {
+  try {
+    const dir = path.join(RQ, 'refs');
+    fs.mkdirSync(dir, { recursive: true });
+    const h = crypto.createHash('sha1').update(buf).digest('hex').slice(0, 16);
+    const fp = path.join(dir, h + '.jpg');
+    if (!fs.existsSync(fp)) fs.writeFileSync(fp, buf);
+    return fp;
+  } catch { return ''; }
+}
+
 async function describeImage(seg) {
   try {
     const buf = await loadImageBytes(seg);
     if (!buf) return '[图片（没拿到）]';
     if (buf.length > 10 * 1024 * 1024) return '[图片太大]';
+    LAST_IN_IMG = saveIncomingImage(buf);
     const t = await describeBuffer(buf, '这是聊天里对方发来的一张图。用一两句话直接说清它是什么、有什么内容。如果是表情包，说出它的情绪或梗。不要客套，不要解释你在做什么。');
     if (!t) return '[图片]';
     log('[img] ->', t.slice(0, 120));
@@ -3027,7 +3059,8 @@ async function onEvent(ev, note = '') {
   }
 
   const now = Date.now();
-  const ps = noteIncoming(conv, text);
+  const inImg = LAST_IN_IMG; LAST_IN_IMG = '';
+  const ps = noteIncoming(conv, text, inImg);
   try { grants.touch(workKey(conv)); } catch {}   // 复查 R8：QQ 来消息也续期
   ps.lastMsgTime = Math.max(Number(ps.lastMsgTime) || 0, Math.floor((ev.time || Date.now() / 1000)));
   saveP();
@@ -4398,7 +4431,16 @@ try {
   if (fs.existsSync(LOCK_FILE)) {
     const oldPid = parseInt(fs.readFileSync(LOCK_FILE, 'utf8'), 10);
     if (oldPid && oldPid !== process.pid) {
-      try { process.kill(oldPid, 0); log('another bridge already running, pid', oldPid, '- exit'); process.exit(0); } catch {}
+      try {
+        process.kill(oldPid, 0);
+        // 光看 pid 存在不够：容器重启后这个号会被别的进程复用（supervise 就拿到过 14），
+        // 于是每次启动都以为"已经有一个在跑"，死循环退出。再看一眼命令行。
+        let cmd = '';
+        try { cmd = fs.readFileSync(`/proc/${oldPid}/cmdline`, 'utf8'); } catch { cmd = 'win'; }
+        const isBridge = /bridge/i.test(cmd) || cmd === 'win';
+        if (isBridge) { log('another bridge already running, pid', oldPid, '- exit'); process.exit(0); }
+        log('[lock] 旧 pid', oldPid, '已不是桥接，忽略');
+      } catch {}
     }
   }
   fs.writeFileSync(LOCK_FILE, String(process.pid));
