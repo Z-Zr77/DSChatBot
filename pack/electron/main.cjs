@@ -1,5 +1,6 @@
 // Electron 主进程：窗口 + 托盘 + 拉起 launch.mjs（用它自己的 node 运行时）。
-// 首次运行显示向导，配置完成后自动切到控制台。
+// 还没填 API Key 时先开控制台，让「第一次见面」当第一屏。
+// QQ / NapCat 向导不抢这次启动，从 QQ 页或托盘再进。
 const { app, BrowserWindow, shell, Menu, Tray, nativeImage, dialog, Notification } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -117,12 +118,11 @@ async function up(url) {
   } catch { return false; }
 }
 
-async function configured() {
+function hasApiKey() {
   try {
-    const r = await fetch('http://127.0.0.1:3071/api/state', { signal: AbortSignal.timeout(1500) });
-    const j = await r.json();
-    return !!j.configured;
-  } catch { return true; }
+    const s = JSON.parse(fs.readFileSync(path.join(dataDir(), 'setup.json'), 'utf8'));
+    return !!(s && s.api && String(s.api.key || '').trim());
+  } catch { return false; }
 }
 
 function showWindow() {
@@ -185,6 +185,12 @@ function startNotifyServer() {
           jout2({ ok: true, path: r.filePaths[0] });
         } catch (e) { jout2({ ok: false, err: String(e && e.message || e) }); }
       });
+      return;
+    }
+    if (u === '/open-wizard' && req.method === 'POST') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"ok":true,"switched":true}');
+      openWizard().catch((e) => logLine('open wizard', String(e && e.message || e)));
       return;
     }
     if (req.method !== 'POST' || !u.startsWith('/notify')) { res.writeHead(404); res.end('no'); return; }
@@ -356,12 +362,12 @@ function buildTray() {
     await refreshTrayStatus();
   } };
   const auto = { label: '开机自动启动', type: 'checkbox', checked: autoStartOn(), click: (item) => setAutoStart(item.checked) };
-  // 托盘只留每天真的会点的：打开、暂停、重启、退出。
-  // 「设置向导」「重启 QQ 内核」「安装内核守护」「打开数据目录」都进了控制台，
-  // 重复一遍反而让人不敢点（2026-11-02 按用户要求收）。
+  // 托盘留每天会点的，再加上 QQ / NapCat 向导。
+  // 向导不再抢第一次启动（没密钥时先看控制台的「第一次见面」），所以从这里和 QQ 页进。
   const template = [
     { label: '打开聊天', click: openChat },
     { label: '打开控制台', click: () => openConsole() },
+    { label: 'QQ / NapCat 向导', click: () => { openWizard().catch((e) => logLine('tray wizard', String(e && e.message || e))); } },
     { type: 'separator' },
     pauseItem,
     auto,
@@ -432,17 +438,21 @@ async function boot() {
   startBackend().catch((e) => console.error(e));
   setTimeout(() => { if (win && !win.isDestroyed()) applyWindowPrefs(win); }, 6000);
 
+  // 没密钥时即使 3071 上还留着向导，也要等控制台，不要先落到 wizard.html。
+  const needFirstMeet = !hasApiKey();
   const t0 = Date.now();
   let mode = null;
   while (Date.now() - t0 < 60000) {
     if (await up(consoleUrl())) { mode = 'console'; break; }
-    if (await up(WIZARD)) { mode = 'wizard'; break; }
+    if (!needFirstMeet && await up(WIZARD)) { mode = 'wizard'; break; }
     await new Promise((r) => setTimeout(r, 600));
   }
   if (!mode) { win.loadURL('data:text/html,<h2 style="font-family:sans-serif;padding:40px">后端启动失败，请查看控制台输出</h2>'); return; }
-  if (mode === 'wizard') { await win.loadURL(WIZARD); }
+  if (needFirstMeet) {
+    await win.loadURL(consoleUrl()).catch(() => {});
+  } else if (mode === 'wizard') { await win.loadURL(WIZARD); }
   else {
-    // 默认进聊天界面；聊天服务还没起来就先等一会儿，等不到再退回控制台
+    // 已经配过密钥：默认进聊天界面；聊天服务还没起来就先等一会儿，等不到再退回控制台
     const t1 = Date.now();
     let landed = false;
     while (Date.now() - t1 < 20000) {
@@ -453,7 +463,7 @@ async function boot() {
   }
 
   let timer = setInterval(async () => {
-    if (mode !== 'wizard') return;
+    if (needFirstMeet || mode !== 'wizard') return;
     // 向导里的“稍后再说”也会起控制台：只要控制台能响应了，就把窗口切过去
     if (!(await up(consoleUrl()))) return;
     clearInterval(timer);

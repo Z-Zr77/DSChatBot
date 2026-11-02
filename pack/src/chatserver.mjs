@@ -1,13 +1,14 @@
 // 合并版：聊天界面用的本地后台（给界面提供接口，并转发给桥接的本地通道）
 // 只做三件事：转发消息、存取头像、把她的语音/图片递出去。v1，故意保持小。
 import * as workdialog from './workdialog.mjs';
+import * as daily from './daily.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { PATHS } from './paths.mjs';
+import { PATHS, loadSetup } from './paths.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -129,6 +130,49 @@ function saveCfg(cfg) {
     }
   } catch {}
   return { ok: true };
+}
+
+function readJson(f) {
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; }
+}
+// 聊天窗头上的心情/日程：只读控制台已经在用的同一批文件（state/<uin>.json、life/plan）。
+// 不走 mind.load()，那次读取会把衰减写回去。
+function presenceOf() {
+  const out = {};
+  try {
+    const q = (loadSetup().qq) || {};
+    const ids = [];
+    if (q.ownerUin) ids.push(String(q.ownerUin));
+    if (q.uin && String(q.uin) !== String(q.ownerUin || '')) ids.push(String(q.uin));
+    ids.push('local');
+    for (const id of ids) {
+      const st = readJson(path.join(PATHS.data, 'state', id.replace(/[^\w-]/g, '_') + '.json'));
+      if (!st || (st.mood == null && st.energy == null && !st.asleepUntil)) continue;
+      out.mind = {
+        mood: Number(st.mood),
+        energy: Number(st.energy),
+        asleepUntil: Number(st.asleepUntil) || 0,
+      };
+      break;
+    }
+  } catch {}
+  try {
+    const plan = daily.loadPlan(daily.today());
+    const cur = plan ? daily.currentItem(plan) : null;
+    const nxt = plan ? daily.nextItem(plan) : null;
+    if (cur) out.doing = { at: cur.at || '', place: cur.place || '', what: cur.what || '' };
+    if (nxt) out.next = { at: nxt.at || '', what: nxt.what || '' };
+  } catch {}
+  return out;
+}
+function consoleOrigin() {
+  let port = 0;
+  try { port = Number(fs.readFileSync(path.join(PATHS.data, 'ui-port.txt'), 'utf8').trim()) || 0; } catch {}
+  if (!port) {
+    try { port = Number((loadSetup().ui || {}).port) || 0; } catch {}
+  }
+  if (!port) port = Number(process.env.QQBOT_UI_PORT) || 3070;
+  return 'http://127.0.0.1:' + port + '/';
 }
 
 const ping = async (cfg, ms = 1200) => {
@@ -256,7 +300,7 @@ export function startServer(port = 3210) {
         // ---- 状态 ----
         if (p === '/api/state') {
           const on = await ping(cfg);
-          return send(res, 200, { ok: true, bridge: on, cfg });
+          return send(res, 200, { ok: true, bridge: on, cfg, console: consoleOrigin(), presence: presenceOf() });
         }
         if (p === '/api/config') {
           if (req.method === 'POST') {

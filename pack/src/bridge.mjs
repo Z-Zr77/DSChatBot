@@ -1262,7 +1262,7 @@ function grantStillActive(conv, pinned) {
 
 // 工具要的能力 > 当前会话有没有。日常只给 fs:read；exec 首期一律不开
 function toolCapsOk(conv, name, scope) {
-  if (workCfg().toolsEnabled !== true) return { ok: false, err: '她现在不能动电脑：先去控制台「设置」把「允许她动电脑」打开（默认是关的）' };
+  if (workCfg().toolsEnabled !== true) return { ok: false, err: '她现在不能动电脑：先去控制台「模型页」把「允许她动电脑」打开（默认是关的）' };
   const t = toolbox.tools[name];
   const need = (t && t.caps) || [];
   if (!need.length) return { ok: false, err: '工具没有声明能力，按默认拒绝：' + name };   // 复查 R6
@@ -1482,15 +1482,18 @@ function logOwn(conv, text) {
   } catch {}
 }
 
+// 这一轮是她先开口（主动消息 / 分享 / 醒来打招呼）时，记到聊天记录上，窗口才能标「她来找你」。
+let __markProactive = false;
+
 async function sendMsg(conv, text) {
   for (const part of splitText(text, cfg.maxChunk)) {
-    let r = await channels.dispatch(conv, { text: part });
+    let r = await channels.dispatch(conv, { text: part, proactive: !!__markProactive });
     // 主人这条私聊发不出去（QQ 断了）：改从本地窗口说出来。
     // 群消息不许这样换出口——在群里冒出一句只他自己能看到的话，比不发更糟。
     if (!r.ok && r.offline && conv.kind === 'private' && String(conv.id) === String(cfg.ownerUin)) {
       const local = channels.get('local');
       if (local && local.send) {
-        const lr = await local.send(channels.convOn(local, cfg.ownerUin), { text: part });
+        const lr = await local.send(channels.convOn(local, cfg.ownerUin), { text: part, proactive: !!__markProactive });
         if (lr && lr.ok) {
           log('[send] QQ 没通，改从本地窗口说', (part || '').slice(0, 40));
           try { notifyOwner(part); } catch {}
@@ -1505,7 +1508,7 @@ async function sendMsg(conv, text) {
   }
 }
 
-function __recordLocal(conv, seg) {
+function __recordLocal(conv, seg, proactive) {
   // 软件内收到她的消息时，按配置推到手机
   try {
     if (conv && conv.kind === 'local' && notify.enabled()) {
@@ -1525,7 +1528,7 @@ function __recordLocal(conv, seg) {
     const src = conv.kind === 'local' ? 'app' : 'qq';
     if (t === 'text') {
       const txt = String((seg.data && seg.data.text) || '');
-      if (txt) { chatlog.append(conv.id, { dir: 'out', type: 'text', text: txt, src }); logOwn(conv, txt); }
+      if (txt) { chatlog.append(conv.id, { dir: 'out', type: 'text', text: txt, src, ...(proactive ? { proactive: true } : {}) }); logOwn(conv, txt); }
       return;
     }
     if (t === 'image' || t === 'record' || t === 'voice' || t === 'file') {
@@ -1533,17 +1536,17 @@ function __recordLocal(conv, seg) {
       const p = raw.replace(/^file:\/\/\//, '').replace(/^file:\/\//, '');
       const st = chatlog.stash(p, conv.id);
       const name = String((seg.data && seg.data.name) || '') || path.basename(p);
-      chatlog.append(conv.id, { dir: 'out', type: t === 'image' ? 'image' : t === 'file' ? 'file' : 'voice', file: st, src, text: t === 'file' ? name : (seg.__text ? String(seg.__text) : '') });
+      chatlog.append(conv.id, { dir: 'out', type: t === 'image' ? 'image' : t === 'file' ? 'file' : 'voice', file: st, src, text: t === 'file' ? name : (seg.__text ? String(seg.__text) : ''), ...(proactive ? { proactive: true } : {}) });
       return;
     }
     if (t === 'face') {
-      chatlog.append(conv.id, { dir: 'out', type: 'face', text: String((seg.data && seg.data.id) || ''), src });
+      chatlog.append(conv.id, { dir: 'out', type: 'face', text: String((seg.data && seg.data.id) || ''), src, ...(proactive ? { proactive: true } : {}) });
     }
   } catch (e) { log('[chatlog] record fail', e.message); }
 }
 
 async function sendSeg(conv, seg) {
-  const r = await channels.dispatch(conv, { seg });
+  const r = await channels.dispatch(conv, { seg, proactive: !!__markProactive });
   if (!r.ok) return { ok: false, err: r.err || '没发出去' };
   return r.local ? { ok: true, local: true } : { ok: true, messageId: r.messageId };
 }
@@ -2092,7 +2095,10 @@ async function speakLeave(conv, mk, reason, mstate, opts = {}) {
   try {
     if (prev) saveHerThread(id, outreach.noteHerReply(prev, Date.now(), { leaving: true }));
     log('[outreach] 这场没说完，先把离开说出来', id, reason, line);
-    await sendBubbles(conv, line);
+    const __prevLeave = __markProactive;
+    __markProactive = true;
+    try { await sendBubbles(conv, line); }
+    finally { __markProactive = __prevLeave; }
     try {
       const st = mstate || mind.load(id);
       if (!mstate && opts.incoming !== false) mind.bump(st, { type: 'user_msg' });
@@ -3516,7 +3522,7 @@ async function replyNowInner(conv, body, extras = {}) {
     if (!extras.proactive && !extras.dry) {
       const bad = /401|Authentication Fails|invalid.*api[\s_-]?key|Unauthorized/i.test(String(r.err || ''));
       await sendMsg(conv, bad
-        ? '我这边连不上模型：给我的那个 key 被服务器拒了（invalid api key）。你去控制台「设置」→「模型」里换一个新的 key，换好跟我说一声就行。'
+        ? '我这边连不上模型：给我的那个 key 被服务器拒了（invalid api key）。你去控制台「模型页」换一个新的 key，换好跟我说一声就行。'
         : '哎，我这边卡了一下，你再说一遍？');
     }
     return null;
@@ -3848,6 +3854,9 @@ async function replyNowInner(conv, body, extras = {}) {
   try { __lastOut.set(convKey(conv), String(out || '').trim()); } catch {}
   log('-> reply', convKey(conv), out.length, 'memos', memos.length, 'face', ex.faces.length, 'sticker', ex.stickerFiles.length, 'voice', ex.voice, '|', String(out).replace(/\n/g, ' / ').slice(0, 300) || '(只发媒体)');
   let sayText = String(out || '').trim();
+  const __prevPro = __markProactive;
+  __markProactive = !!extras.proactive;
+  try {
   if (ex.voice && lv < 2 && sayText) await sendVoice(conv, sayText);
   else if (sayText) {
         if (Date.now() - __staleT0 > 240000) {
@@ -3874,6 +3883,7 @@ async function replyNowInner(conv, body, extras = {}) {
   for (const s of (ex.selfies || [])) await sendSelfie(conv, s, { owed: photoMust });
   for (const sc of (ex.scenes || [])) await sendScene(conv, sc, { owed: photoMust });
   if (conv.kind === 'group') gfAfterSpeak(conv.id);   // 说过话就把续聊窗口续上
+  } finally { __markProactive = __prevPro; }
   mind.bump(mstate, { type: extras.proactive ? 'proactive' : 'my_reply' });
   mind.save(mk, mstate);
   // 顺序不能反：mstate 是这轮开始时就读出来的，里面 asleepUntil 还是旧值。
@@ -4072,7 +4082,7 @@ channels.register({
     // 发给主人的私聊才记本地：确认发出去了再记，失败就不记
     if (!isGroup && String(conv.id) === String(cfg.ownerUin)) {
       if (out && out.seg) { try { __recordLocal(conv, out.seg); } catch {} }
-      else chatlog.append(conv.id, { dir: 'out', type: 'text', text: String(out.text), src: 'qq' });
+      else chatlog.append(conv.id, { dir: 'out', type: 'text', text: String(out.text), src: 'qq', ...(out && out.proactive ? { proactive: true } : {}) });
     }
     return { ok: true, messageId: r.messageId };
   },
@@ -4081,8 +4091,8 @@ channels.register({
   id: 'local', label: '本地窗口', online: true, kinds: ['local'],
   conv: (uin) => ({ kind: 'local', id: String(cfg.ownerUin), speaker: String(cfg.ownerUin) }),
   send: async (conv, out) => {
-    if (out && out.seg) { __recordLocal(conv, out.seg); return { ok: true, local: true }; }
-    chatlog.append(conv.id, { dir: 'out', type: 'text', text: String((out && out.text) || ''), src: 'app' });
+    if (out && out.seg) { __recordLocal(conv, out.seg, !!(out && out.proactive)); return { ok: true, local: true }; }
+    chatlog.append(conv.id, { dir: 'out', type: 'text', text: String((out && out.text) || ''), src: 'app', ...(out && out.proactive ? { proactive: true } : {}) });
     return { ok: true, local: true };
   },
 });
@@ -4764,7 +4774,7 @@ function startLocalChannel() {
       const b = await __readBody(req);
       const w = workCfg();
       const key = workKey(__localConv());
-      if (w.toolsEnabled !== true) return __json(res, 403, { ok: false, err: '「允许她动电脑」是关着的：先到「设置」里打开，再选工作文件夹' });
+      if (w.toolsEnabled !== true) return __json(res, 403, { ok: false, err: '「允许她动电脑」是关着的：先到「模型页」里打开，再选工作文件夹' });
       if (!b.root) return __json(res, 400, { ok: false, err: '缺工作目录' });
       const asked = path.resolve(String(b.root).trim());
       // 能力以「档位」为准：b.mode 优先，其次设置里存的 defaultMode。

@@ -49,7 +49,16 @@ check('向导只走已有接口，不发明后门', () => {
 
 check('做完了能关掉（否则整页被遮罩挡住）', () => {
   assert.ok(/e\.remove\(\); location\.reload\(\)/.test(ui), '完成后没有关闭遮罩');
-  assert.ok(/\$\('#wzSkip'\)\.onclick = function\(\)\{ box\.remove\(\); \}/.test(ui), '没有「先不弄」的出口');
+  assert.ok(/\$\('#wzSkip'\)\.onclick = function\(\)\{ box\.remove\(\); goPage\('config'\); \}/.test(ui), '没有「去模型页自己填」的出口');
+});
+
+check('地址和模型默认收在「高级」里，做完能去聊天窗', () => {
+  assert.ok(/<details class="wz-adv"><summary>高级<\/summary>/.test(ui), '高级折叠没了');
+  assert.ok(!/<details class="wz-adv" open>/.test(ui), '高级不该默认展开');
+  assert.ok(/去模型页自己填/.test(ui));
+  assert.ok(/打开聊天窗/.test(ui));
+  assert.ok(/留在控制台/.test(ui));
+  assert.ok(/127\.0\.0\.1:3210/.test(ui), '打开聊天窗没有指向聊天端口');
 });
 
 check('样式跟着控制台走（不能插到手机版那份样式里）', () => {

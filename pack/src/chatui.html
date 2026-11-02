@@ -5,9 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>DSChatBot</title>
 <style>
-  /* v0.5：聊天窗只放对话。工作模式相关 UI 全部隐藏，改到控制台设置里配置。 */
-  #workBar{display:none!important}
-  
+  /* 工作模式收在顶部「更多」里，第一次打开先看到聊天。 */
   :root{
     --bg:#0f1115; --panel:#151a23; --line:#232a37; --txt:#e7ecf5; --dim:#8b93a1;
     --me:#2c5cff; --her:#1f2637; --ok:#35c46a; --warn:#e0a020;
@@ -25,7 +23,13 @@
   header .av img{width:100%;height:100%;object-fit:cover;display:block}
   header .who{display:flex;flex-direction:column;line-height:1.2;min-width:0}
   header .who b{font-weight:600;font-size:calc(var(--fs) * .95)}
-  header .st{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:5px}
+  header .st{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+  header details.work-more{position:relative;flex:0 0 auto}
+  header details.work-more > summary{list-style:none;cursor:pointer;color:var(--dim);font-size:13px;padding:6px 10px;border-radius:8px;border:1px solid transparent;user-select:none}
+  header details.work-more > summary::-webkit-details-marker{display:none}
+  header details.work-more > summary:hover{background:#1d2431;color:var(--txt)}
+  header details.work-more:not([open]) > #workBar{display:none!important}
+  .proBadge{display:inline-block;margin:0 0 4px;padding:1px 8px;border-radius:999px;background:#3a2a16;color:#ffd9a8;border:1px solid #8a5a2a;font-size:11px;line-height:1.6}
   header .dot{width:7px;height:7px;border-radius:50%;background:#555;display:inline-block}
   header .dot.on{background:var(--ok);box-shadow:0 0 8px rgba(53,196,106,.6)}
   header .sp{flex:1}
@@ -124,6 +128,9 @@
     border-left:1px solid var(--line);padding:18px;overflow-y:auto}
   #set h3{margin:0 0 4px;font-size:16px}
   #set .tip{color:var(--dim);font-size:12px;margin:0 0 16px}
+  #set .jump{display:flex;gap:8px;margin:0 0 16px}
+  #set .jump a{flex:1;text-align:center;text-decoration:none;padding:10px 8px;border-radius:11px;background:#1d2431;color:var(--txt);border:1px solid var(--line);font-size:13px}
+  #set .jump a:hover{border-color:#7fb2ff;color:#d6e6ff}
   .fld{margin-bottom:14px}
   .fld label{display:block;font-size:12px;color:var(--dim);margin-bottom:6px}
   .fld input{width:100%;padding:9px 11px;background:#0d1016;border:1px solid var(--line);border-radius:10px;color:var(--txt);font:inherit}
@@ -329,6 +336,8 @@ footer{background:linear-gradient(0deg,#101822,#101822f2);border-color:var(--lin
       <span class="st"><i class="dot" id="hDot"></i><span id="hSt">连接中…</span></span>
     </div>
     <div class="sp"></div>
+    <details id="workMore" class="work-more">
+      <summary id="workMoreSum">更多</summary>
     <div id="workBar">
       <button id="workEnterBtn" title="选择工作目录与权限">进入工作模式</button>
       <span id="workOn">
@@ -353,6 +362,7 @@ footer{background:linear-gradient(0deg,#101822,#101822f2);border-color:var(--lin
         <button data-appr="never"><b>不用问</b><span>工作区内的命令直接跑；越权仍然拒</span></button>
       </div>
     </div>
+    </details>
     <button id="btnSearch" title="搜聊天记录">🔍</button>
     <button id="btnSet" title="设置">⚙</button>
   </header>
@@ -426,7 +436,11 @@ footer{background:linear-gradient(0deg,#101822,#101822f2);border-color:var(--lin
   <div class="mask" data-close></div>
   <div class="panel">
     <h3>设置</h3>
-    <p class="tip">改完点「保存」，立刻生效（桥接端口要她重启才生效）。</p>
+    <p class="tip">改完点「保存」，立刻生效（桥接端口要她重启才生效）。人设和模型在控制台里改。</p>
+    <div class="jump">
+      <a id="lnkHer" href="http://127.0.0.1:3070/#her" target="_blank" rel="noopener">改人设</a>
+      <a id="lnkCfg" href="http://127.0.0.1:3070/#config" target="_blank" rel="noopener">改模型 API</a>
+    </div>
 
     <div class="avrow">
       <div class="big"><img id="avHer" src="/api/avatar/her" alt=""></div>
@@ -545,6 +559,7 @@ function render(m){
     bub = el('div', 'bub', '');
     bub.textContent = m.text || '';
   }
+  if (!mine && m.proactive) col.appendChild(el('div', 'proBadge', '她来找你'));
   col.appendChild(bub);
   col.appendChild(el('div', 'meta', hhmm(m.at || Date.now())));
   row.appendChild(av); row.appendChild(col);
@@ -651,12 +666,35 @@ async function loadHistory(){
   } catch (e) { toast('历史渲染出错：' + e.message); }
 }
 
+function paintHeader(r){
+  const dot = $('#hDot');
+  const st = $('#hSt');
+  const pres = (r && r.presence) || {};
+  const mind = pres.mind || null;
+  const asleep = !!(mind && Number(mind.asleepUntil) > Date.now());
+  if (dot) dot.classList.toggle('on', BRIDGE && !asleep);
+  const bits = [BRIDGE ? (asleep ? '在睡' : '在线') : '未连接'];
+  if (mind) {
+    const mood = Number(mind.mood);
+    const energy = Number(mind.energy);
+    if (Number.isFinite(mood)) bits.push('心情 ' + Math.round(Math.max(0, Math.min(100, mood))));
+    if (Number.isFinite(energy)) bits.push('精力 ' + Math.round(Math.max(0, Math.min(100, energy))));
+  }
+  const doing = pres.doing;
+  if (doing && (doing.place || doing.what)) bits.push([doing.place, doing.what].filter(Boolean).join(' · '));
+  if (pres.next && pres.next.at) bits.push('下一件 ' + pres.next.at);
+  if (st) { st.textContent = bits.join(' · '); st.title = st.textContent; }
+  const root = String((r && r.console) || 'http://127.0.0.1:3070/').replace(/\/+$/, '');
+  const her = document.getElementById('lnkHer');
+  const cfgL = document.getElementById('lnkCfg');
+  if (her) her.href = root + '/#her';
+  if (cfgL) cfgL.href = root + '/#config';
+}
 async function checkState(){
   const r = await api('/api/state');
   BRIDGE = !!(r && r.bridge);
   CFG = (r && r.cfg) || CFG;
-  const dot = $('#hDot'); if (dot) dot.classList.toggle('on', BRIDGE);
-  const st = $('#hSt'); if (st) st.textContent = BRIDGE ? '在线' : '未连接';
+  paintHeader(r);
   const dn = $('#down'); if (dn) dn.classList.toggle('on', !BRIDGE);
   if (!BRIDGE && $('#downMsg')) $('#downMsg').textContent = '后台桥接没连上。可以点下面把她叫起来（会启动主程序），也可以在设置里改端口。';
 }
@@ -921,6 +959,8 @@ async function paintWorkBar(){
     const mode = (r && r.mode) || PERM_MODE || 'write';
     PERM_MODE = mode;
     document.getElementById('workEnterBtn').hidden = on;
+    const sum = document.getElementById('workMoreSum');
+    if (sum) sum.textContent = on ? '更多 · 工作中' : '更多';
     const eb = document.getElementById('workEnterBtn');
     if (eb) eb.onclick = openWorkDialog;
     document.getElementById('workOn').style.display = on ? 'flex' : 'none';

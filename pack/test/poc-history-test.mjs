@@ -117,6 +117,23 @@ const ta = async (name, fn) => { try { await fn(); PASS++; console.log('PASS', n
   t('恢复请求会带上 wsId', () => {
     assert.match(uiSrc, /wsId: wsId \|\| undefined/);
   });
+  t('工作条默认收在「更多」里，设置里能去控制台改人设和模型', () => {
+    assert.match(uiSrc, /id="workMore"/);
+    assert.match(uiSrc, /<summary id="workMoreSum">更多<\/summary>/);
+    assert.match(uiSrc, /改人设/);
+    assert.match(uiSrc, /改模型 API/);
+    assert.match(uiSrc, /#her/);
+    assert.match(uiSrc, /#config/);
+    assert.match(uiSrc, /details\.work-more:not\(\[open\]\) > #workBar\{display:none!important\}/);
+  });
+  t('主动开口的消息能标出来，头上能接心情和日程', () => {
+    assert.match(uiSrc, /她来找你/);
+    assert.match(uiSrc, /m\.proactive/);
+    assert.match(uiSrc, /presence/);
+    assert.match(uiSrc, /asleepUntil/);
+    assert.match(bridgeSrc, /__markProactive = !!extras\.proactive/);
+    assert.match(bridgeSrc, /proactive: !!__markProactive/);
+  });
 
   console.log('\n' + (FAIL ? 'FAILED ' + FAIL : 'ALL PASS') + '  PASS=' + PASS + ' FAIL=' + FAIL);
   try { fs.rmSync(TMP_ROOT, { recursive: true, force: true }); } catch {}

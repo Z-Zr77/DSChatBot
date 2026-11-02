@@ -39,7 +39,7 @@ check('每一项都给了怎么修（fix 字段）', () => {
   const addCalls = ui.match(/add\('[a-z]+',/g) || [];
   assert.ok(addCalls.length >= IDS.length);
   // 硬伤项必须带修复指引
-  assert.ok(/去「设置 → 大脑（API）」填一个 key/.test(ui));
+  assert.ok(/去「模型页」填一个 key/.test(ui));
   assert.ok(/点「重启桥接」/.test(ui));
 });
 
