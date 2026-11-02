@@ -2196,8 +2196,10 @@ function refForClothes(uin, text) {
     if (!fs.existsSync(it.file)) continue;
     const purpose = it.purpose || imageintent.refPurposeOf(it.task || '');
     if (purpose === 'doc') continue;
-    if (purpose === 'clothes') return it.file;
-    if (imageintent.OUT_KW.test(s)) return it.file;               // 用途不明但这句在说衣服
+    // 2026-11-02 放宽：他只要说了"这套/这件/照这个"，就把最近那张图带上。
+    // 原来非要 purpose==='clothes' 才算，而他发图时那句常常只是在问"好看吗"，
+    // 用途被判成 unknown → 她一直用固定形象图自己发挥，用户以为"她不会参考图"。
+    return it.file;
   }
   return '';
 }
@@ -3056,6 +3058,15 @@ function queueReply(key, conv, line, rawText, opts = {}) {
   buf.lines.push(line);
   if (!buf.startedAt) buf.startedAt = Date.now();
   let plan = replyDelay(isGroup, rawText);
+  // 正在聊天就别摆架子：他两分钟内刚说过话，说明人就在手机前面。
+  // 原来的 20 秒~8 分钟一档在"连着聊"的场景里像断了网（2026-11-02 用户反馈）。
+  if (!isGroup && plan.ms > 2600) {
+    try {
+      const recent = chatlog.recent(conv.id, 10) || [];
+      const lastIn = recent.filter(r => r && r.dir === 'in').map(r => Number(r.at) || 0).sort((a, b) => b - a)[0] || 0;
+      if (lastIn && Date.now() - lastIn < 120000) plan = { ms: Math.round(900 + Math.random() * 1600), skip: false };
+    } catch {}
+  }
 
   // 第一次跟这个人说话，不许装忙、也不许不回：
   // 新人刚装好，发第一句"在吗"就被抽到"15 分钟后回"或者"这次不回"，会以为程序坏了。
