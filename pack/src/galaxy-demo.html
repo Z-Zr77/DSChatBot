@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>MemoryGalaxy temporary demo</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; background: #05080f; }
+  body { display: flex; flex-direction: column; color: #e5edf8; font: 14px system-ui, "Microsoft YaHei", sans-serif; }
+  header { height: 90px; flex: 0 0 auto; padding: 20px 32px; background: #091020; border-bottom: 1px solid #1c2a42; }
+  h1 { margin: 0 0 6px; font-size: 23px; font-weight: 600; }
+  p { margin: 0; color: #92a4bf; }
+  canvas { display: block; flex: 1 1 auto; width: 100%; height: calc(100% - 90px); min-height: 0; }
+</style>
+<header><h1>记忆星图</h1><p>60 个记忆节点 · 3 个分簇 · 2 条关系连线 · 拖动平移 / 滚轮缩放 / 悬停查看 / 点击选择</p></header>
+<canvas id="galaxy"></canvas>
+<script>
+  // Temporary diagnostics live here; the renderer exposes only the requested API.
+  const nativeRAF = window.requestAnimationFrame.bind(window);
+  window.renderDeltas = [];
+  window.renderCosts = [];
+  window.renderFrames = 0;
+  window.sampleFrames = false;
+  let previousRender = null;
+  window.requestAnimationFrame = function (callback) {
+    return nativeRAF(function (time) {
+      const start = performance.now();
+      if (window.sampleFrames && callback.name === 'draw') {
+        if (previousRender !== null) window.renderDeltas.push(start - previousRender);
+        previousRender = start;
+      } else if (callback.name === 'draw') previousRender = null;
+      callback(time);
+      if (callback.name === 'draw') {
+        window.renderFrames++;
+        if (window.sampleFrames) window.renderCosts.push(performance.now() - start);
+      }
+    });
+  };
+  window.labels = [];
+  window.rings = [];
+  window.bubbles = [];
+  window.measuredEdges = [];
+  window.nodeDraws = [];
+  const proto = CanvasRenderingContext2D.prototype;
+  const fillText = proto.fillText, arc = proto.arc, roundRect = proto.roundRect, moveTo = proto.moveTo, lineTo = proto.lineTo;
+  proto.fillText = function (text, x, y, ...rest) {
+    if (this.canvas.id === 'galaxy' && /600 14px/.test(this.font)) window.labels.push({ text, x, y, color: this.fillStyle, transform: Array.from(this.getTransform().toFloat64Array()) });
+    return fillText.call(this, text, x, y, ...rest);
+  };
+  proto.arc = function (x, y, radius, ...rest) {
+    if (this.canvas.id === 'galaxy') {
+      const matrix = this.getTransform();
+      const record = { x, y, radius, screenX: matrix.a * x + matrix.e, screenY: matrix.d * y + matrix.f, alpha: this.globalAlpha, color: this.fillStyle, scale: matrix.a };
+      if (this.getLineDash().length) window.rings.push(record);
+      else window.nodeDraws.push(record);
+    }
+    return arc.call(this, x, y, radius, ...rest);
+  };
+  proto.roundRect = function (...args) {
+    if (this.canvas.id === 'galaxy') window.bubbles.push(args);
+    return roundRect.apply(this, args);
+  };
+  proto.moveTo = function (x, y) { if (this.canvas.id === 'galaxy') this.demoLineStart = {x, y}; return moveTo.call(this, x, y); };
+  proto.lineTo = function (x, y) {
+    if (this.canvas.id === 'galaxy' && this.demoLineStart) window.measuredEdges.push({ from: this.demoLineStart, to: {x, y}, dash: this.getLineDash(), color: this.strokeStyle, width: this.lineWidth });
+    return lineTo.call(this, x, y);
+  };
+</script>
+<script src="memory-galaxy.js"></script>
+<script>
+  window.demoCanvas = document.getElementById('galaxy');
+  window.picks = [];
+  window.makeNodes = function (count) {
+    const names = ['2585086723', '3387429106', '8163052749'];
+    const kinds = ['core', 'important', 'fact', 'trivia'];
+    return Array.from({length: count}, (_, index) => ({
+      index, text: index === 0 ? '对方是你的主人。记住彼此约定，保持长期记忆；这条完整文本用于检查悬停气泡与中文换行。' : '记忆 ' + index + '：这是一条用于验证独立星图渲染器的完整示例记录。',
+      kind: kinds[index % kinds.length], score: 3 + index % 13,
+      group: names[Math.min(2, Math.floor(index * 3 / count))], isOwnerGroup: index < Math.ceil(count / 3)
+    }));
+  };
+  window.demoNodes = makeNodes(60);
+  window.demoEdges = [{from: 0, to: 23, kind: 'correction'}, {from: 24, to: 43, kind: 'cause'}];
+  window.resetTrace = function () { labels.length = rings.length = bubbles.length = measuredEdges.length = nodeDraws.length = 0; };
+  window.takeTrace = function () {
+    const result = {labels: labels.slice(-3), rings: rings.slice(-1), edges: measuredEdges.slice(-demoEdges.length), nodes: nodeDraws.slice(-demoNodes.length * 3), bubbles: bubbles.slice(-1)};
+    resetTrace();
+    return result;
+  };
+  window.mountDemo = function () { MemoryGalaxy.mount(demoCanvas, { nodes: demoNodes, edges: demoEdges, onPick: node => picks.push(node.index) }); };
+  mountDemo();
+  // Avoid retaining an unbounded trace during longer real-time measurements.
+  setInterval(resetTrace, 1000);
+</script>
+</html>
